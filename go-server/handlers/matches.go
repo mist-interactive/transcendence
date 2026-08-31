@@ -3,8 +3,11 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 // MatchCreate handles POST /api/internal/matches.
@@ -55,4 +58,45 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"id": match.ID,
 	})
+}
+
+// MatchPatch handles PATCH /api/internal/matches/{id}.
+// It is called by the Game Server when a match concludes to record the final result and status.
+func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	matchID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		slog.Warn("match patch rejected: invalid match ID", "id", idStr, "error", err)
+		http.Error(w, "Invalid match ID", http.StatusBadRequest)
+		return
+	}
+	input, err := DecodeAndValidate[models.MatchPatchInput](r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+	res, err := h.DB.NewUpdate().
+		Model((*models.MatchRecord)(nil)).
+		Where("id = ?", matchID).
+		Where("status = ?", models.StatusInProgress).
+		Set("status = ?", input.Status).
+		Set("result = ?", input.Result).
+		Set("finished_at = ?", now).
+		Exec(r.Context())
+
+	if err != nil {
+		HandleDBError(w, err, "Updating match history")
+		return
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		slog.Warn("match patch failed: no match in progress found", "match_id", matchID)
+		http.Error(w, fmt.Sprintf("No match in progress with ID %d was found", matchID), http.StatusConflict)
+		return
+	}
+
+	slog.Info("match result updated in database", "match_id", matchID, "status", input.Status, "result", input.Result)
+	w.WriteHeader(http.StatusNoContent)
 }
