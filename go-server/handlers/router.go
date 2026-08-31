@@ -102,6 +102,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	internal := NewGroup(mux, "/api/internal", h.APIGuard)
 
 	internal.HandleFunc("POST /matches", h.MatchCreate)
+	internal.HandleFunc("PATCH /matches/{id}", h.MatchPatch)
 
 	// WS service internal endpoints
 	internal.HandleFunc("GET /friends/{id}", InjectPathIDContext(h.FriendsListGet))
