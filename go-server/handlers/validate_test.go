@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"dbBackend/handlers"
+	"dbBackend/models"
 )
 
 func TestDecodeAndValidate_RegisterRequest(t *testing.T) {
@@ -65,7 +66,7 @@ func TestDecodeAndValidate_RegisterRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", "/api/register", strings.NewReader(tt.jsonBody))
 			req.Header.Set("Content-Type", "application/json")
-			_, err := handlers.DecodeAndValidate[handlers.RegisterRequest](req)
+			_, err := handlers.DecodeAndValidate[models.RegisterRequest](req)
 			if tt.expectError && err == nil {
 				t.Errorf("expected an error but got none")
 			}

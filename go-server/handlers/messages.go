@@ -6,16 +6,6 @@ import (
 	"net/http"
 )
 
-type MessageCreateInput struct {
-	SenderID    int64  `json:"sender_id" validate:"required"`
-	RecipientID int64  `json:"recipient_id" validate:"required"`
-	Content     string `json:"content" validate:"required,max=2000"` //max 2000 chars per message
-}
-
-type MessageSetReadInput struct {
-	ReadUpTo int64 `json:"read_up_to" validate:"required"`
-}
-
 // GET /api/protected/messages/{friend_name}
 // Retrieves the chat history between the authenticated user and a specific friend.
 func (h *Handler) MessagesGetHistory(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +48,7 @@ func (h *Handler) MessagesGetHistory(w http.ResponseWriter, r *http.Request) {
 // POST /api/internal/messages
 // Internal endpoint used by the WebSocket microservice to persist chat messages.
 func (h *Handler) MessageCreate(w http.ResponseWriter, r *http.Request) {
-	input, err := DecodeAndValidate[MessageCreateInput](r)
+	input, err := DecodeAndValidate[models.MessageCreateInput](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -102,7 +92,7 @@ func (h *Handler) MessageSetRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid friend name", http.StatusBadRequest)
 		return
 	}
-	input, err := DecodeAndValidate[MessageSetReadInput](r) //input now contains ReadUpTo
+	input, err := DecodeAndValidate[models.MessageSetReadInput](r) //input now contains ReadUpTo
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

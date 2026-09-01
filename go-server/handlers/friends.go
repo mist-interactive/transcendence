@@ -11,35 +11,13 @@ import (
 	"time"
 )
 
-type FriendRequest struct {
-	Target string `json:"target" validate:"required,min=3,max=50"` //same length constraints as when registering
-}
-
-type FriendRequestAnswer struct {
-	Status models.FriendshipStatus `json:"status" validate:"required,oneof=accepted blocked"`
-}
-
-// The backend returns a list of these.
-// FriendshipID is mainly for management: accept/reject/block/delete existing friendship: do via the friendship-id
-// IsIncoming tells whether a pending friend request was sent by this user, or opposite party
-// other fields are the same as profile-get so you don't need multiple db calls
-type FriendshipItemResponse struct {
-	FriendshipID int64                   `json:"friendship_id"`
-	UserID       int64                   `json:"user_id"`
-	Username     string                  `json:"username"`
-	AvatarURL    *string                 `json:"avatar_url"`
-	Status       models.FriendshipStatus `json:"status"`
-	IsIncoming   bool                    `json:"is_incoming"`
-	UnreadCount  int64                   `json:"unread_count"`
-}
-
 func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	input, err := DecodeAndValidate[FriendRequest](r)
+	input, err := DecodeAndValidate[models.FriendRequest](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -84,7 +62,7 @@ func (h *Handler) FriendsListGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	//initialize a list of structs, so JSON understands to encode it as a list
-	friends := make([]FriendshipItemResponse, 0)
+	friends := make([]models.FriendshipItemResponse, 0)
 
 	//make a single DB call to get all friends, *and* their profiles, so
 	err := h.DB.NewSelect().
@@ -115,7 +93,7 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	input, err := DecodeAndValidate[FriendRequestAnswer](r) //this forces input.Status to be either 'accepted' or 'blocked'
+	input, err := DecodeAndValidate[models.FriendRequestAnswer](r) //this forces input.Status to be either 'accepted' or 'blocked'
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

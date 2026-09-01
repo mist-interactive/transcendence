@@ -8,14 +8,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type RegisterRequest struct {
-	Username string `json:"username" validate:"required,min=3,max=50,username_safety"`
-	Password string `json:"password" validate:"required,min=8,max=72,password_complexity"`
-	Email    string `json:"email" validate:"required,email,max=255"`
-}
-
 func (h *Handler) TryRegister(w http.ResponseWriter, r *http.Request) {
-	request, err := DecodeAndValidate[RegisterRequest](r)
+	request, err := DecodeAndValidate[models.RegisterRequest](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

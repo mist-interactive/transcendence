@@ -6,13 +6,8 @@ import (
 	"net/http"
 )
 
-type MatchCreateInput struct {
-	Player1 int64 `json:"player_one" validate:"required"`
-	Player2 int64 `json:"player_two" validate:"required"`
-}
-
 func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
-	input, err := DecodeAndValidate[MatchCreateInput](r)
+	input, err := DecodeAndValidate[models.MatchCreateInput](r)
 	if err != nil {
 		http.Error(w, "Problem validating request", http.StatusBadRequest)
 		return

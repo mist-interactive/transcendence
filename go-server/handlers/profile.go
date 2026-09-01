@@ -9,19 +9,6 @@ import (
 	"time"
 )
 
-type ProfilePatchInput struct {
-	Bio       *string `json:"bio" validate:"omitempty,max=500"`
-	AvatarURL *string `json:"avatarUrl" validate:"omitempty,url"`
-	Email     *string `json:"email" validate:"omitempty,email,max=255"`
-}
-
-type UserProfile struct {
-	Username  string  `bun:"username" json:"username"`
-	Email     string  `bun:"email" json:"email"`
-	Bio       string  `bun:"bio" json:"bio"`
-	AvatarURL *string `bun:"avatar_url" json:"avatarUrl"`
-}
-
 func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 	log.Println("--> ProfileGet hit!")
 
@@ -30,7 +17,7 @@ func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	profile := new(UserProfile)
+	profile := new(models.UserProfile)
 	err := h.DB.NewSelect().
 		Table("users").
 		Where("id = ?", userID).
@@ -53,12 +40,12 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	input, err := DecodeAndValidate[ProfilePatchInput](r)
+	input, err := DecodeAndValidate[models.ProfilePatchInput](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if input.isEmpty() {
+	if isProfilePatchEmpty(&input) {
 		http.Error(w, "At least one field must be provided", http.StatusBadRequest)
 		return
 	}
@@ -79,7 +66,7 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 		query = query.Set("avatar_url = ?", *input.AvatarURL)
 	}
 	//Do the update while scanning data to memory
-	profile := new(UserProfile)
+	profile := new(models.UserProfile)
 	err = query.Returning("username, email, bio, avatar_url").Scan(r.Context(), profile)
 	if err != nil {
 		HandleDBError(w, err, "User profile get")
@@ -91,7 +78,7 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(profile)
 }
 
-func (p ProfilePatchInput) isEmpty() bool {
+func isProfilePatchEmpty(p *models.ProfilePatchInput) bool {
 	return p.Bio == nil && p.AvatarURL == nil && p.Email == nil
 }
 
@@ -102,7 +89,7 @@ func (h *Handler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No username provided", http.StatusBadRequest)
 		return
 	}
-	profile := new(UserProfile)
+	profile := new(models.UserProfile)
 	err := h.DB.NewSelect().
 		Table("users").
 		Where("username = ?", userStr).

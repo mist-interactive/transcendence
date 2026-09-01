@@ -22,14 +22,14 @@ func TestLogin(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		requestBody    handlers.LoginRequest
+		requestBody    models.LoginRequest
 		expectedStatus int
 		expectJSON     bool
 		validate       func(t *testing.T, rec *httptest.ResponseRecorder)
 	}{
 		{
 			name: "Success - Correct credentials",
-			requestBody: handlers.LoginRequest{
+			requestBody: models.LoginRequest{
 				Username: testUser.Username,
 				Password: "password123",
 			},
@@ -39,7 +39,7 @@ func TestLogin(t *testing.T) {
 		},
 		{
 			name: "Failure - Correct user but incorrect password",
-			requestBody: handlers.LoginRequest{
+			requestBody: models.LoginRequest{
 				Username: testUser.Username,
 				Password: "wrongpassword",
 			},
@@ -49,7 +49,7 @@ func TestLogin(t *testing.T) {
 		},
 		{
 			name: "Failure - Nonexistent user",
-			requestBody: handlers.LoginRequest{
+			requestBody: models.LoginRequest{
 				Username: "completely_different_" + testUser.Username,
 				Password: "somepassword",
 			},

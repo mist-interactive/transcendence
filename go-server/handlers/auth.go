@@ -9,17 +9,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type LoginRequest struct {
-	Username string `json:"username" validate:"required,min=3,max=50"`
-	Password string `json:"password" validate:"required,min=8,max=72"`
-}
-
 const SessionCookieName string = "session_id"
 
 // to be able to be registered as a handler in the server, the function prototype has to be exactly (http.ResponseWriter, *http.Request)
 // so any further input parameters have to be in the receiver, which is why it's a struct
 func (h *Handler) CheckPassword(w http.ResponseWriter, r *http.Request) {
-	request, err := DecodeAndValidate[LoginRequest](r)
+	request, err := DecodeAndValidate[models.LoginRequest](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
