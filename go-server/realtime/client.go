@@ -73,7 +73,8 @@ func (c *Client) readPump() {
 	}
 }
 
-// registry of handlers for different types of websocket messages.
+// messageRoutes maps incoming WebSocket message types to their corresponding handler functions.
+// Handlers are wrapped with bind[T] to automatically parse and validate the JSON payload.
 var messageRoutes = map[MessageType]WSHandlerFunc{
 	TypeInviteSend:     bind((*Client).HandleMatchInvite),
 	TypeInviteResponse: bind((*Client).HandleMatchInviteResponse),

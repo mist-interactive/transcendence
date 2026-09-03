@@ -85,6 +85,8 @@ func (s *HttpDataStore) GetFriendsList(ctx context.Context, userID int64) ([]int
 	return friendIDs, nil
 }
 
+// CreateMatch calls POST /api/internal/matches with player usernames.
+// It instructs the database service to persist an in-progress match and returns the new match ID.
 func (s *HttpDataStore) CreateMatch(ctx context.Context, playerOne, playerTwo string) (int64, error) {
 	input := models.MatchCreateInput{
 		Player1: playerOne,

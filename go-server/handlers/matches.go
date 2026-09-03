@@ -6,6 +6,10 @@ import (
 	"net/http"
 )
 
+// MatchCreate handles POST /api/internal/matches.
+// It is called by the WebSocket service when a match challenge is accepted.
+// It resolves player usernames to database primary keys and inserts a new match
+// with status 'in_progress', returning the newly generated match ID.
 func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	input, err := DecodeAndValidate[models.MatchCreateInput](r)
 	if err != nil {
