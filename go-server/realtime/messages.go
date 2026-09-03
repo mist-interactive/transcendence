@@ -33,6 +33,26 @@ type MatchSessionPayload struct {
 	Opponent string `json:"opponent"`
 }
 
+type inviteKey struct {
+	challenger string
+	target     string
+}
+
+type MatchActionType int
+
+const (
+	ActionInviteSend MatchActionType = iota
+	ActionInviteResponse
+	ActionInviteCancel
+)
+
+type MatchAction struct {
+	Type   MatchActionType
+	Sender *Client
+	Target string
+	Status string
+}
+
 // UserMessage represents an internal instruction to deliver bytes to a specific user
 type UserMessage struct {
 	UserID   int64
