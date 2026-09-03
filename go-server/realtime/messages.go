@@ -1,32 +1,32 @@
 package realtime
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/go-playground/validator/v10"
+)
 
 // definitions of message types the websocket handles
 type MessageType string
 
 const (
-	//client->server
-	//	TypeDM   MessageType = "direct_message"
-	//	TypePing MessageType = "ping"
-	//server->client
+	// server->client presence updates
 	TypeInitialPresence MessageType = "initial_presence"
 	TypePresenceUpdate  MessageType = "presence_update"
-
-// TypeError           MessageType = "error"
 )
 
-// message struct: a type, and then payload, which is any struct
-type WebsocketMessage struct {
-	Type    MessageType `json:"type"`
-	Payload any         `json:"payload,omitempty"`
+// UserMessage represents an internal instruction to deliver bytes to a specific user
+type UserMessage struct {
+	UserID   int64
+	Username string
+	Data     []byte
 }
 
-// helper to parse incoming messages: first JSON parse gets message type,
-// second parse can then parse the RawMessage the correct struct for that message type
-type IncomingMessage struct {
+// WebsocketMessage is the universal envelope for all websocket frames
+type WebsocketMessage struct {
 	Type    MessageType     `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 type InitialPresencePayload struct {
@@ -36,4 +36,31 @@ type InitialPresencePayload struct {
 type PresenceUpdatePayload struct {
 	Username     string `json:"username"`
 	OnlineStatus bool   `json:"online_status"`
+}
+
+var validate = validator.New()
+
+func UnmarshalAndValidate[T any](raw json.RawMessage) (T, error) {
+	var target T
+	if err := json.Unmarshal(raw, &target); err != nil {
+		return target, fmt.Errorf("malformed JSON payload: %w", err)
+	}
+
+	if err := validate.Struct(target); err != nil {
+		return target, fmt.Errorf("validation error: %w", err)
+	}
+
+	return target, nil
+}
+
+// EncodeMessage encodes a typed payload into a WebsocketMessage JSON frame
+func EncodeMessage(msgType MessageType, payload any) ([]byte, error) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(WebsocketMessage{
+		Type:    msgType,
+		Payload: payloadBytes,
+	})
 }

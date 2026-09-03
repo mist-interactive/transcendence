@@ -2,15 +2,15 @@ package realtime
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 )
 
 type Hub struct {
-	clients    map[int64]*Client //map of Clients connected to the Hub. key is the userID
-	register   chan *Client      //way to add Clients to the Hub
-	unregister chan *Client      //way to remove Clients from the Hub
-	store      DataStore         //DB connection. currently a direct DB connection, can be replaced with a caller of /internal/* APIs later
+	clients    map[int64]*Client // map of Clients connected to the Hub. key is the userID
+	register   chan *Client      // way to add Clients to the Hub
+	unregister chan *Client      // way to remove Clients from the Hub
+	unicast    chan UserMessage  // Universal channel to deliver data to any specific user
+	store      DataStore         // DB connection
 }
 
 // create a new Hub using the specified DB connection
@@ -19,17 +19,27 @@ func NewHub(store DataStore) *Hub {
 		clients:    make(map[int64]*Client),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		store:      store}
+		unicast:    make(chan UserMessage),
+		store:      store,
+	}
 }
 
-// main loop of the service: notice when clients come and go
+// main loop of the service: notice when clients come and go, and when messages need to be sent
 func (h *Hub) Run() {
-	for { //this is an event listener, it selects the first active channel. if no channels are active, Go puts this thread to sleep until one activates
+	for {
 		select {
-		case client := <-h.register: //h.register has an element, catch it as `client`
+		case client := <-h.register:
 			h.handleRegister(client)
-		case client := <-h.unregister: //h.unregister has an element, catch it as `client`
+		case client := <-h.unregister:
 			h.handleUnregister(client)
+		case msg := <-h.unicast:
+			if msg.UserID != 0 {
+				if recipient, isOnline := h.clients[msg.UserID]; isOnline {
+					recipient.TrySend(msg.Data)
+				}
+			} else if msg.Username != "" {
+				h.sendToUsernameDirect(msg.Username, msg.Data)
+			}
 		}
 	}
 }
@@ -45,18 +55,18 @@ func (h *Hub) handleRegister(client *Client) {
 		return
 	}
 	onlineFriendUsernames := make([]string, 0)
-	presenceMessage, err := json.Marshal(WebsocketMessage{TypePresenceUpdate, PresenceUpdatePayload{client.Username, true}})
+	presenceMessage, err := EncodeMessage(TypePresenceUpdate, PresenceUpdatePayload{client.Username, true})
 	if err != nil {
 		log.Println("problem marshalling presence update json")
 		return
 	}
 	for _, friendID := range friendIDs {
-		if friend, isOnline := h.clients[friendID]; isOnline { //map lookup returns pointer to client, and true if key was in map, nil and false otherwise
+		if friend, isOnline := h.clients[friendID]; isOnline {
 			onlineFriendUsernames = append(onlineFriendUsernames, friend.Username)
 			friend.TrySend(presenceMessage)
 		}
 	}
-	initialMessage, err := json.Marshal(WebsocketMessage{TypeInitialPresence, InitialPresencePayload{onlineFriendUsernames}})
+	initialMessage, err := EncodeMessage(TypeInitialPresence, InitialPresencePayload{onlineFriendUsernames})
 	if err != nil {
 		log.Println("problem marshalling initial presence json")
 		return
@@ -76,7 +86,7 @@ func (h *Hub) handleUnregister(client *Client) {
 		}
 
 		// Marshal offline status message
-		offlineMessage, err := json.Marshal(WebsocketMessage{TypePresenceUpdate, PresenceUpdatePayload{client.Username, false}})
+		offlineMessage, err := EncodeMessage(TypePresenceUpdate, PresenceUpdatePayload{client.Username, false})
 		if err != nil {
 			return
 		}
@@ -88,4 +98,21 @@ func (h *Hub) handleUnregister(client *Client) {
 			}
 		}
 	}
+}
+
+func (h *Hub) sendToUsernameDirect(username string, data []byte) {
+	for _, client := range h.clients {
+		if client.Username == username {
+			client.TrySend(data)
+			break
+		}
+	}
+}
+
+func (h *Hub) SendToUser(userID int64, data []byte) {
+	h.unicast <- UserMessage{UserID: userID, Data: data}
+}
+
+func (h *Hub) SendToUsername(username string, data []byte) {
+	h.unicast <- UserMessage{Username: username, Data: data}
 }
