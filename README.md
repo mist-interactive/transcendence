@@ -177,24 +177,24 @@ We use 60s as the lifetime currently.
 
 #### API key protected routes: `/api/internal/*`
 
-These routes are intended to be used by the game server when it needs to get or store data in the database. This is accomplished by a middleware, that checks whether the request has a key provided in the header, and that it matches a known key
+These routes are intended to be used by internal microservices (the **WebSocket service** and the **Game server**) when they need to get or store data in the database. This is accomplished by a middleware, that checks whether the request has a key provided in the header, and that it matches a known key
 
 ##### `POST /api/internal/matches`
 
-Used to create a new match entry in the database. The expected request body, as defined in `matches.go`:
+Used by the **WebSocket service** to create a new match entry in the database when an opponent accepts a challenge. The expected request body, as defined in `models/match.go`:
 
-```
+```go
 type MatchCreateInput struct {
-	Player1 int64 `json:"player_one" validate:"required"`
-	Player2 int64 `json:"player_two" validate:"required"`
+	Player1 string `json:"player_one" validate:"required,min=3,max=50"`
+	Player2 string `json:"player_two" validate:"required,min=3,max=50"`
 }
 ```
 
-So to create a match record, you just send the player ids. The `status` field is set to "`in_progress`". If successful, the return is a JSON with the content
+So to create a match record, the player usernames are sent. The handler resolves both usernames to database IDs and the `status` field is set to "`in_progress`". If successful, the return is a JSON with the content
 
-```
+```json
 {
-  "match_id": <id>
+  "id": <id>
 }
 ```
 
@@ -215,6 +215,14 @@ This means that the "`result`" must be one of `player1_win`, `player2_win`, `dra
 
 To perform an update, we first filter the `matches` table to only include entries with the `id` specified in the request address, and only ones where status is `in_progress`. This means a match result can only be updated once, while trying to update an id that doesn't exist in the table or that doesn't have status `in_progress`, results in an error `http.StatusConflict` (409) being returned.
 
+##### `GET /api/internal/friends/{id}`
+
+Called by the **WebSocket service** on client connection and disconnection to fetch the user's friends list and determine which friends should receive real-time presence updates (`online_status`).
+
+##### `POST /api/internal/messages`
+
+Called by the **WebSocket service** to persist chat messages. Resolves the recipient username to a user ID and inserts the message into PostgreSQL.
+
 #### JWT protected routes: `/api/protected/*`
 
 These routes are protected by a JWT checking middleware, which will extract the userid from the token after validating the signature and expiration status. That id is passed on to the handlers in the request context.
@@ -229,7 +237,100 @@ This updates the users information with the selected updates. response is status
 
 ##### `DELETE /api/protected/profile`
 
-This deletes the users profile. response is status code only
+This deletes the users profile. response is status code only.
+
+### Real-Time WebSocket Service (`/api/ws`)
+
+The WebSocket service manages live player presence and peer-to-peer match invitations. Clients connect to `GET /api/ws?token=<jwt>`, where the connection is authenticated via JWT validation.
+
+#### Architecture & Concurrency Model
+
+- **Actor-Model Hub (`realtime/hub.go`):** Operates on a single-threaded event loop (`Hub.Run()`). It is the exclusive owner of connected client sockets and pending challenge state.
+- **Lock-Free Concurrency (CSP):** Client read goroutines (`readPump`) do not mutate shared state directly; they pass action messages via Go channels (`unicast`, `matchAction`, `register`, `unregister`). The `select` in `Hub.Run()` implements a **C**ommunicating **S**equential **P**rocesses architecture, that allows thread-safe operations affecting shared resources such as the clients map without explicit mutexes.
+- **Microservice Decoupling (`realtime/datastore.go`):** The WebSocket service interacts with the database exclusively through the `DataStore` interface (`HttpDataStore`), which calls the `/api/internal/*` REST endpoints using `X-API-Key`.
+- **Table-Driven Routing (`realtime/client.go`):** Dispatches incoming event frames using a typed `messageRoutes` table and generic `bind[T]` adapter.
+
+#### Envelope Protocol
+
+All WebSocket frames use a unified JSON envelope:
+
+```json
+{
+  "type": "<message_type>",
+  "payload": { ... }
+}
+```
+
+---
+
+#### Match Challenge Lifecycle
+
+The challenge system coordinates invitations between two online players before launching an online game room.
+
+##### State Machine Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Alice as Challenger (Alice)
+    participant Server as Go WebSocket Hub
+    actor Bob as Target (Bob)
+    participant DB as Database (Internal REST)
+
+    Note over Alice,Bob: 1. Challenge Issuance
+    Alice->>Server: match_invite_send {"username": "bob"}
+    Note over Server: Validates target != self<br/>Registers Hub.invites[Alice->Bob]
+    Server->>Bob: match_invite_recv {"username": "alice", "status": "pending"}
+
+    alt Scenario A: Bob Accepts Challenge
+        Bob->>Server: match_invite_response {"username": "alice", "status": "accepted"}
+        Note over Server: Verifies & consumes Hub.invites[Alice->Bob]
+        Server->>DB: POST /api/internal/matches ("alice", "bob")
+        DB-->>Server: 201 Created {"id": 105}
+        par Notify Both Players
+            Server->>Alice: match_started {"match_id": 105, "opponent": "bob"}
+            Server->>Bob: match_started {"match_id": 105, "opponent": "alice"}
+        end
+        Note over Alice,Bob: Both players pass {"match_id": 105} and their JWTs to game server
+
+    else Scenario B: Bob Declines Challenge
+        Bob->>Server: match_invite_response {"username": "alice", "status": "declined"}
+        Note over Server: Deletes Hub.invites[Alice->Bob]
+        Server->>Alice: match_invite_response {"username": "bob", "status": "declined"}
+
+    else Scenario C: Alice Cancels Outgoing Challenge
+        Alice->>Server: match_invite_cancel {"username": "bob"}
+        Note over Server: Deletes Hub.invites[Alice->Bob]
+        Server->>Bob: match_invite_cancel {"username": "alice", "status": "canceled"}
+
+    else Scenario D: Player Disconnects
+        Note over Server: handleUnregister sweeps and deletes all<br/>pending invites involving the disconnected user
+    end
+```
+
+##### Security & State Invariants
+
+1. **Anti-Spoofing / Unsolicited Acceptance Protection:**
+   A player cannot force another player into a match by sending an unprompted `match_invite_response` (`accepted`). The Hub verifies that an active challenge from that challenger to that responder exists in memory. If not found, the response is discarded.
+2. **Single-Use Consumption:**
+   When an invite is accepted, it is immediately consumed and deleted from memory before match creation begins, preventing replay attacks or duplicate match creation.
+3. **Disconnect Sweeping:**
+   If either player disconnects while an invite is pending, `handleUnregister` automatically sweeps and deletes all active invites involving that user.
+4. **Self-Challenge Prevention:**
+   Players cannot challenge themselves.
+
+##### Event Payloads Reference
+
+| Direction                   | Type                    | Payload Example                               | Description                            |
+| :-------------------------- | :---------------------- | :-------------------------------------------- | :------------------------------------- |
+| Client $\rightarrow$ Server | `match_invite_send`     | `{"username": "bob"}`                         | Alice challenges Bob                   |
+| Server $\rightarrow$ Client | `match_invite_recv`     | `{"username": "alice", "status": "pending"}`  | Bob receives Alice's challenge         |
+| Client $\rightarrow$ Server | `match_invite_response` | `{"username": "alice", "status": "accepted"}` | Bob accepts Alice's challenge          |
+| Client $\rightarrow$ Server | `match_invite_response` | `{"username": "alice", "status": "declined"}` | Bob declines Alice's challenge         |
+| Server $\rightarrow$ Client | `match_invite_response` | `{"username": "bob", "status": "declined"}`   | Alice is notified Bob declined         |
+| Client $\rightarrow$ Server | `match_invite_cancel`   | `{"username": "bob"}`                         | Alice cancels her pending challenge    |
+| Server $\rightarrow$ Client | `match_invite_cancel`   | `{"username": "alice", "status": "canceled"}` | Bob is notified challenge was canceled |
+| Server $\rightarrow$ Both   | `match_started`         | `{"match_id": 105, "opponent": "bob"}`        | Game start notification with match ID  |
 
 ### Testing
 
