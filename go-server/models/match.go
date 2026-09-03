@@ -33,8 +33,8 @@ type MatchRecord struct {
 }
 
 type MatchCreateInput struct {
-	Player1 int64 `json:"player_one" validate:"required"`
-	Player2 int64 `json:"player_two" validate:"required"`
+	Player1 string `json:"player_one" validate:"required,min=3,max=50"`
+	Player2 string `json:"player_two" validate:"required,min=3,max=50"`
 }
 
 type MatchPatchInput struct {

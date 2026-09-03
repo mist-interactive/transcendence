@@ -17,9 +17,20 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	p1, err := h.getUserByUsername(r.Context(), input.Player1)
+	if err != nil {
+		http.Error(w, "Player 1 not found", http.StatusNotFound)
+		return
+	}
+	p2, err := h.getUserByUsername(r.Context(), input.Player2)
+	if err != nil {
+		http.Error(w, "Player 2 not found", http.StatusNotFound)
+		return
+	}
+
 	match := &models.MatchRecord{
-		Player1: input.Player1,
-		Player2: input.Player2,
+		Player1: p1.ID,
+		Player2: p2.ID,
 		Status:  models.StatusInProgress,
 	}
 	err = h.DB.NewInsert().

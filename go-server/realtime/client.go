@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -47,12 +48,40 @@ func (c *Client) readPump() {
 		c.Conn.Close()
 	}()
 
-	for { // ReadMessage blocks until data arrives or the socket closes (disconnect)
-		_, _, err := c.Conn.ReadMessage() //TODO: catch the actual message, and react
+	for {
+		messageType, p, err := c.Conn.ReadMessage()
 		if err != nil {
-			break // Disconnected: unregister via the deferred function
+			break
 		}
-		// TODO: parse incoming chat messages here
+		if messageType != websocket.TextMessage {
+			continue
+		}
+
+		var incoming WebsocketMessage
+		if err := json.Unmarshal(p, &incoming); err != nil {
+			log.Printf("[WS] Malformed JSON from %s: %v", c.Username, err)
+			continue
+		}
+
+		switch incoming.Type {
+		case TypeInviteSend:
+			payload, err := UnmarshalAndValidate[MatchInvitePayload](incoming.Payload)
+			if err == nil {
+				c.HandleMatchInvite(payload)
+			}
+		case TypeInviteResponse:
+			payload, err := UnmarshalAndValidate[MatchInvitePayload](incoming.Payload)
+			if err == nil {
+				c.HandleMatchInviteResponse(payload)
+			}
+		case TypeInviteCancel:
+			payload, err := UnmarshalAndValidate[MatchInvitePayload](incoming.Payload)
+			if err == nil {
+				c.HandleMatchInviteCancel(payload)
+			}
+		default:
+			log.Printf("[WS] Unknown message type: %s", incoming.Type)
+		}
 	}
 }
 
