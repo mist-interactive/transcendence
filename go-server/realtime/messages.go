@@ -55,6 +55,20 @@ type PresenceUpdatePayload struct {
 	OnlineStatus bool   `json:"online_status"`
 }
 
+// WSHandlerFunc is the standard signature for handling a websocket message payload
+type WSHandlerFunc func(*Client, json.RawMessage) error
+
+// bind bridges a typed handler func(*Client, T) error to WSHandlerFunc via generic unmarshaling and validation
+func bind[T any](fn func(*Client, T) error) WSHandlerFunc {
+	return func(c *Client, raw json.RawMessage) error {
+		payload, err := UnmarshalAndValidate[T](raw)
+		if err != nil {
+			return err
+		}
+		return fn(c, payload)
+	}
+}
+
 var validate = validator.New()
 
 func UnmarshalAndValidate[T any](raw json.RawMessage) (T, error) {
