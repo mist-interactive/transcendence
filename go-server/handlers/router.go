@@ -107,7 +107,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	internal.HandleFunc("POST /messages", h.MessageCreate)
 
 	//WS microservice
-	store := realtime.NewBunDataStore(db)
+	store := realtime.NewHttpDataStore("http://localhost:8080", apiKey)
 	hub := realtime.NewHub(store)
 	go hub.Run()
 

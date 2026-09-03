@@ -1,37 +1,85 @@
 package realtime
 
 import (
+	"bytes"
 	"context"
 	"dbBackend/models"
-
-	"github.com/uptrace/bun"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
 )
 
-// this is how the ws system interacts with the DB. if split off to own service, just define a new DataStore that comms over http
+// DataStore defines the interface for persistence operations needed by the WebSocket service.
 type DataStore interface {
-	//SaveMessage(ctx context.Context, senderID, recipientID int64, content string) (*models.Message, error) //TODO
 	GetFriendsList(ctx context.Context, userID int64) ([]int64, error)
 }
 
-type BunDataStore struct {
-	DB *bun.DB
+type HttpDataStore struct {
+	BaseURL string
+	APIKey  string
+	Client  *http.Client
 }
 
-func NewBunDataStore(db *bun.DB) *BunDataStore {
-	return &BunDataStore{DB: db}
+func NewHttpDataStore(baseURL, apiKey string) *HttpDataStore {
+	return &HttpDataStore{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		Client:  &http.Client{Timeout: 5 * time.Second},
+	}
 }
 
-func (s *BunDataStore) GetFriendsList(ctx context.Context, userID int64) ([]int64, error) {
-	var friends []int64
+// doRequest is a generic helper that sends an authenticated HTTP request, checks the status code, and decodes the JSON response
+func doRequest[T any](ctx context.Context, s *HttpDataStore, method, path string, body any, expectedStatus int) (*T, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBytes, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = bytes.NewBuffer(jsonBytes)
+	}
 
-	// Extracts the OTHER user's ID for all accepted relationships
-	err := s.DB.NewSelect().
-		TableExpr("friendships").
-		Where("(user_id = ? OR friend_id = ?) AND status = ?", userID, userID, models.StatusAccepted). //this filters the table: only accepted friendships relating to query user remain
-		ColumnExpr("CASE WHEN user_id = ? THEN friend_id ELSE user_id END", userID).                   //select the other part of the friendship relation as output
-		Scan(ctx, &friends)
+	req, err := http.NewRequestWithContext(ctx, method, s.BaseURL+path, bodyReader)
 	if err != nil {
 		return nil, err
 	}
-	return friends, nil
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("X-API-Key", s.APIKey)
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("DB service unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != expectedStatus {
+		return nil, fmt.Errorf("request to %s failed with status %d", path, resp.StatusCode)
+	}
+
+	var result T
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+func (s *HttpDataStore) GetFriendsList(ctx context.Context, userID int64) ([]int64, error) {
+	path := fmt.Sprintf("/api/internal/friends/%d", userID)
+	items, err := doRequest[[]models.FriendshipItemResponse](ctx, s, http.MethodGet, path, nil, http.StatusOK)
+	if err != nil {
+		return nil, err
+	}
+
+	var friendIDs []int64
+	for _, item := range *items {
+		if item.Status == models.StatusAccepted {
+			friendIDs = append(friendIDs, item.UserID)
+		}
+	}
+	return friendIDs, nil
 }
