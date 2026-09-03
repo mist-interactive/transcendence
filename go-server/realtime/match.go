@@ -1,6 +1,8 @@
 package realtime
 
-// HandleMatchInvite handles an incoming match challenge from client c to payload.Username
+// HandleMatchInvite is invoked when an online player issues a "match_invite_send" event.
+// It packages the challenge into a MatchAction and pushes it to the Hub's action channel,
+// where it will be recorded in the in-memory invites registry and forwarded to the target.
 func (c *Client) HandleMatchInvite(payload MatchInvitePayload) error {
 	c.Hub.matchAction <- MatchAction{
 		Type:   ActionInviteSend,
@@ -10,7 +12,9 @@ func (c *Client) HandleMatchInvite(payload MatchInvitePayload) error {
 	return nil
 }
 
-// HandleMatchInviteResponse handles an accept/decline response from client c to challenger payload.Username
+// HandleMatchInviteResponse is invoked when an invited player answers with "match_invite_response".
+// It dispatches the response (accepted/declined) to the Hub. The Hub will verify whether an invite
+// was actually pending before creating a match or notifying the challenger of a decline.
 func (c *Client) HandleMatchInviteResponse(payload MatchInvitePayload) error {
 	c.Hub.matchAction <- MatchAction{
 		Type:   ActionInviteResponse,
@@ -21,7 +25,8 @@ func (c *Client) HandleMatchInviteResponse(payload MatchInvitePayload) error {
 	return nil
 }
 
-// HandleMatchInviteCancel handles challenger c canceling their pending invite to payload.Username
+// HandleMatchInviteCancel is invoked when a challenger withdraws their pending invite via "match_invite_cancel".
+// It dispatches the cancellation to the Hub to remove the challenge from memory and notify the target.
 func (c *Client) HandleMatchInviteCancel(payload MatchInvitePayload) error {
 	c.Hub.matchAction <- MatchAction{
 		Type:   ActionInviteCancel,

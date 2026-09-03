@@ -141,6 +141,8 @@ func (h *Hub) sendToUsernameDirect(username string, data []byte) {
 	}
 }
 
+// handleMatchAction serves as a thin dispatcher on the Hub's single-threaded event loop.
+// By running these actions sequentially in Hub.Run(), access to h.invites is completely lock-free.
 func (h *Hub) handleMatchAction(action MatchAction) {
 	switch action.Type {
 	case ActionInviteSend:
@@ -152,6 +154,8 @@ func (h *Hub) handleMatchAction(action MatchAction) {
 	}
 }
 
+// onInviteSend validates an outgoing challenge, registers it in h.invites, and delivers
+// a "match_invite_recv" notification to the target player if they are currently connected.
 func (h *Hub) onInviteSend(sender *Client, target string) {
 	if sender.Username == target {
 		return
@@ -166,6 +170,10 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 	}
 }
 
+// onInviteResponse handles an accept or decline from the target player.
+// It verifies that a challenge is actively pending in h.invites (anti-spoof protection).
+// If accepted, it deletes the invite and launches createAndStartMatch in a separate goroutine.
+// If declined, it deletes the invite and forwards the decline to the challenger.
 func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 	key := inviteKey{challenger: challenger, target: sender.Username}
 	if !h.invites[key] {
@@ -189,6 +197,8 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 	}
 }
 
+// onInviteCancel deletes a pending challenge from h.invites and sends "match_invite_cancel"
+// to the target player to dismiss the challenge prompt on their client.
 func (h *Hub) onInviteCancel(sender *Client, target string) {
 	key := inviteKey{challenger: sender.Username, target: target}
 	if h.invites[key] {
@@ -203,6 +213,9 @@ func (h *Hub) onInviteCancel(sender *Client, target string) {
 	}
 }
 
+// createAndStartMatch runs asynchronously in a worker goroutine to call the internal REST API
+// and insert a match record in PostgreSQL without blocking the Hub's main event loop.
+// Once the match ID is returned, it safely delivers "match_started" messages to both players.
 func (h *Hub) createAndStartMatch(challenger, responder string) {
 	matchID, err := h.store.CreateMatch(context.Background(), challenger, responder)
 	if err != nil {
