@@ -14,6 +14,7 @@ import (
 // DataStore defines the interface for persistence operations needed by the WebSocket service.
 type DataStore interface {
 	GetFriendsList(ctx context.Context, userID int64) ([]int64, error)
+	CreateMatch(ctx context.Context, playerOne, playerTwo string) (int64, error)
 }
 
 type HttpDataStore struct {
@@ -82,4 +83,18 @@ func (s *HttpDataStore) GetFriendsList(ctx context.Context, userID int64) ([]int
 		}
 	}
 	return friendIDs, nil
+}
+
+func (s *HttpDataStore) CreateMatch(ctx context.Context, playerOne, playerTwo string) (int64, error) {
+	input := models.MatchCreateInput{
+		Player1: playerOne,
+		Player2: playerTwo,
+	}
+	res, err := doRequest[struct {
+		ID int64 `json:"id"`
+	}](ctx, s, http.MethodPost, "/api/internal/matches", input, http.StatusCreated)
+	if err != nil {
+		return 0, err
+	}
+	return res.ID, nil
 }

@@ -14,7 +14,24 @@ const (
 	// server->client presence updates
 	TypeInitialPresence MessageType = "initial_presence"
 	TypePresenceUpdate  MessageType = "presence_update"
+
+	// Match invitation protocol
+	TypeInviteSend     MessageType = "match_invite_send"
+	TypeInviteRecv     MessageType = "match_invite_recv"
+	TypeInviteResponse MessageType = "match_invite_response"
+	TypeInviteCancel   MessageType = "match_invite_cancel"
+	TypeMatchStarted   MessageType = "match_started"
 )
+
+type MatchInvitePayload struct {
+	Username string `json:"username" validate:"required,min=3,max=50"`
+	Status   string `json:"status,omitempty" validate:"omitempty,oneof=pending accepted declined canceled"`
+}
+
+type MatchSessionPayload struct {
+	MatchID  int64  `json:"match_id"`
+	Opponent string `json:"opponent"`
+}
 
 // UserMessage represents an internal instruction to deliver bytes to a specific user
 type UserMessage struct {
