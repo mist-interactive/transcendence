@@ -63,26 +63,21 @@ func (c *Client) readPump() {
 			continue
 		}
 
-		switch incoming.Type {
-		case TypeInviteSend:
-			payload, err := UnmarshalAndValidate[MatchInvitePayload](incoming.Payload)
-			if err == nil {
-				c.HandleMatchInvite(payload)
+		if handler, exists := messageRoutes[incoming.Type]; exists {
+			if err := handler(c, incoming.Payload); err != nil {
+				log.Printf("[WS] Error handling %s from %s: %v", incoming.Type, c.Username, err)
 			}
-		case TypeInviteResponse:
-			payload, err := UnmarshalAndValidate[MatchInvitePayload](incoming.Payload)
-			if err == nil {
-				c.HandleMatchInviteResponse(payload)
-			}
-		case TypeInviteCancel:
-			payload, err := UnmarshalAndValidate[MatchInvitePayload](incoming.Payload)
-			if err == nil {
-				c.HandleMatchInviteCancel(payload)
-			}
-		default:
+		} else {
 			log.Printf("[WS] Unknown message type: %s", incoming.Type)
 		}
 	}
+}
+
+// registry of handlers for different types of websocket messages.
+var messageRoutes = map[MessageType]WSHandlerFunc{
+	TypeInviteSend:     bind((*Client).HandleMatchInvite),
+	TypeInviteResponse: bind((*Client).HandleMatchInviteResponse),
+	TypeInviteCancel:   bind((*Client).HandleMatchInviteCancel),
 }
 
 // helper to send messages without blocking
