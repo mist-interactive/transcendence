@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -60,16 +61,27 @@ func (c *Client) readPump() {
 		var incoming WebsocketMessage
 		if err := json.Unmarshal(p, &incoming); err != nil {
 			log.Printf("[WS] Malformed JSON from %s: %v", c.Username, err)
+			c.SendError("Malformed message envelope")
 			continue
 		}
 
 		if handler, exists := messageRoutes[incoming.Type]; exists {
 			if err := handler(c, incoming.Payload); err != nil {
 				log.Printf("[WS] Error handling %s from %s: %v", incoming.Type, c.Username, err)
+				c.SendError(err.Error())
 			}
 		} else {
 			log.Printf("[WS] Unknown message type: %s", incoming.Type)
+			c.SendError(fmt.Sprintf("Unknown message type: %s", incoming.Type))
 		}
+	}
+}
+
+// SendError routes a generic error message through the Hub's safe unicast channel.
+func (c *Client) SendError(msg string) {
+	errBytes, err := EncodeMessage(TypeError, ErrorPayload{Message: msg})
+	if err == nil {
+		c.Hub.SendToUser(c.UserID, errBytes)
 	}
 }
 

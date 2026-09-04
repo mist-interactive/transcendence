@@ -21,7 +21,14 @@ const (
 	TypeInviteResponse MessageType = "match_invite_response"
 	TypeInviteCancel   MessageType = "match_invite_cancel"
 	TypeMatchStarted   MessageType = "match_started"
+
+	// Generic error notification
+	TypeError          MessageType = "error"
 )
+
+type ErrorPayload struct {
+	Message string `json:"message"`
+}
 
 type MatchInvitePayload struct {
 	Username string `json:"username" validate:"required,min=3,max=50"`

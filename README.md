@@ -311,7 +311,7 @@ sequenceDiagram
 ##### Security & State Invariants
 
 1. **Anti-Spoofing / Unsolicited Acceptance Protection:**
-   A player cannot force another player into a match by sending an unprompted `match_invite_response` (`accepted`). The Hub verifies that an active challenge from that challenger to that responder exists in memory. If not found, the response is discarded.
+   A player cannot force another player into a match by sending an unprompted `match_invite_response` (`accepted`). The Hub verifies that an active challenge from that challenger to that responder exists in memory. If not found, the sender receives an `error` event.
 2. **Single-Use Consumption:**
    When an invite is accepted, it is immediately consumed and deleted from memory before match creation begins, preventing replay attacks or duplicate match creation.
 3. **Disconnect Sweeping:**
@@ -331,6 +331,7 @@ sequenceDiagram
 | Client $\rightarrow$ Server | `match_invite_cancel`   | `{"username": "bob"}`                         | Alice cancels her pending challenge    |
 | Server $\rightarrow$ Client | `match_invite_cancel`   | `{"username": "alice", "status": "canceled"}` | Bob is notified challenge was canceled |
 | Server $\rightarrow$ Both   | `match_started`         | `{"match_id": 105, "opponent": "bob"}`        | Game start notification with match ID  |
+| Server $\rightarrow$ Client | `error`                 | `{"message": "Invite not found or expired"}`  | Generic failure or validation error    |
 
 ### Testing
 
