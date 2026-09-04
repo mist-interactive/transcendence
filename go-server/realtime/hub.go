@@ -158,6 +158,7 @@ func (h *Hub) handleMatchAction(action MatchAction) {
 // a "match_invite_recv" notification to the target player if they are currently connected.
 func (h *Hub) onInviteSend(sender *Client, target string) {
 	if sender.Username == target {
+		sender.SendError("Cannot invite yourself to a match")
 		return
 	}
 	h.invites[inviteKey{challenger: sender.Username, target: target}] = true
@@ -178,6 +179,7 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 	key := inviteKey{challenger: challenger, target: sender.Username}
 	if !h.invites[key] {
 		log.Printf("[WS] %s tried to respond to non-existent invite from %s", sender.Username, challenger)
+		sender.SendError("Invite not found or has expired")
 		return
 	}
 	delete(h.invites, key)
@@ -220,6 +222,11 @@ func (h *Hub) createAndStartMatch(challenger, responder string) {
 	matchID, err := h.store.CreateMatch(context.Background(), challenger, responder)
 	if err != nil {
 		log.Printf("[WS] Failed to create match between %s and %s: %v", challenger, responder, err)
+		errMsg, errEnc := EncodeMessage(TypeError, ErrorPayload{Message: "Failed to initialize match in database"})
+		if errEnc == nil {
+			h.SendToUsername(challenger, errMsg)
+			h.SendToUsername(responder, errMsg)
+		}
 		return
 	}
 

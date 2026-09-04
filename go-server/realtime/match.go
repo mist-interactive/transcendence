@@ -1,9 +1,14 @@
 package realtime
 
+import "errors"
+
 // HandleMatchInvite is invoked when an online player issues a "match_invite_send" event.
 // It packages the challenge into a MatchAction and pushes it to the Hub's action channel,
 // where it will be recorded in the in-memory invites registry and forwarded to the target.
 func (c *Client) HandleMatchInvite(payload MatchInvitePayload) error {
+	if payload.Username == c.Username {
+		return errors.New("cannot invite yourself to a match")
+	}
 	c.Hub.matchAction <- MatchAction{
 		Type:   ActionInviteSend,
 		Sender: c,
