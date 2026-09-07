@@ -3,6 +3,7 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -18,6 +19,7 @@ func (h *Handler) MessagesGetHistory(w http.ResponseWriter, r *http.Request) {
 	friendNameStr := r.PathValue("friend_name")
 	friend, err := h.getUserByUsername(r.Context(), friendNameStr)
 	if err != nil {
+		slog.Warn("Messages history rejected: friend username not found", "user_id", userID, "friend_name", friendNameStr, "error", err)
 		http.Error(w, "Invalid friend name", http.StatusBadRequest)
 		return
 	}
@@ -33,13 +35,15 @@ func (h *Handler) MessagesGetHistory(w http.ResponseWriter, r *http.Request) {
 		Scan(r.Context())
 
 	if err != nil {
-		http.Error(w, "Database error fetching messages: "+err.Error(), http.StatusInternalServerError)
+		HandleDBError(w, err, "messages")
 		return
 	}
 
 	if messages == nil {
 		messages = make([]models.Message, 0)
 	}
+
+	slog.Debug("Messages history retrieved", "user_id", userID, "friend_id", friend.ID, "count", len(messages))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
@@ -67,9 +71,11 @@ func (h *Handler) MessageCreate(w http.ResponseWriter, r *http.Request) {
 		Scan(r.Context())
 
 	if err != nil {
-		http.Error(w, "Failed to create message: "+err.Error(), http.StatusInternalServerError)
+		HandleDBError(w, err, "messages")
 		return
 	}
+
+	slog.Info("Message created", "sender_id", message.SenderID, "recipient_id", message.RecipientID, "message_id", message.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -89,6 +95,7 @@ func (h *Handler) MessageSetRead(w http.ResponseWriter, r *http.Request) {
 	friendNameStr := r.PathValue("friend_name")
 	friend, err := h.getUserByUsername(r.Context(), friendNameStr)
 	if err != nil {
+		slog.Warn("Message set read rejected: friend username not found", "user_id", userID, "friend_name", friendNameStr, "error", err)
 		http.Error(w, "Invalid friend name", http.StatusBadRequest)
 		return
 	}
@@ -106,11 +113,14 @@ func (h *Handler) MessageSetRead(w http.ResponseWriter, r *http.Request) {
 		Where("id <= ?", input.ReadUpTo).  //update all messages up to the reference one.
 		Set("is_read = TRUE")
 
-	_, err = query.Exec(r.Context())
+	res, err := query.Exec(r.Context())
 	if err != nil {
 		HandleDBError(w, err, "Updating messages to read")
 		return
 	}
+
+	rows, _ := res.RowsAffected()
+	slog.Debug("Messages marked as read", "user_id", userID, "friend_id", friend.ID, "read_up_to", input.ReadUpTo, "rows_affected", rows)
 
 	w.WriteHeader(http.StatusNoContent)
 }

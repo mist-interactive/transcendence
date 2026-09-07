@@ -3,7 +3,7 @@ package realtime
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/gorilla/websocket"
 )
@@ -37,6 +37,7 @@ func (c *Client) writePump() {
 	for message := range c.Send {
 		err := c.Conn.WriteMessage(websocket.TextMessage, message)
 		if err != nil {
+			slog.Debug("WebSocket write pump closed", "username", c.Username, "user_id", c.UserID, "error", err)
 			return
 		}
 	}
@@ -52,6 +53,11 @@ func (c *Client) readPump() {
 	for {
 		messageType, p, err := c.Conn.ReadMessage()
 		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				slog.Info("WebSocket read pump closed with error", "username", c.Username, "user_id", c.UserID, "error", err)
+			} else {
+				slog.Debug("WebSocket client disconnected", "username", c.Username, "user_id", c.UserID, "error", err)
+			}
 			break
 		}
 		if messageType != websocket.TextMessage {
@@ -60,18 +66,20 @@ func (c *Client) readPump() {
 
 		var incoming WebsocketMessage
 		if err := json.Unmarshal(p, &incoming); err != nil {
-			log.Printf("[WS] Malformed JSON from %s: %v", c.Username, err)
+			slog.Warn("WebSocket malformed message envelope", "username", c.Username, "user_id", c.UserID, "raw", string(p), "error", err)
 			c.SendError("Malformed message envelope")
 			continue
 		}
 
+		slog.Debug("WebSocket message received", "type", incoming.Type, "username", c.Username, "user_id", c.UserID)
+
 		if handler, exists := messageRoutes[incoming.Type]; exists {
 			if err := handler(c, incoming.Payload); err != nil {
-				log.Printf("[WS] Error handling %s from %s: %v", incoming.Type, c.Username, err)
+				slog.Warn("WebSocket message handling error", "type", incoming.Type, "username", c.Username, "user_id", c.UserID, "error", err)
 				c.SendError(err.Error())
 			}
 		} else {
-			log.Printf("[WS] Unknown message type: %s", incoming.Type)
+			slog.Warn("WebSocket unknown message type", "type", incoming.Type, "username", c.Username, "user_id", c.UserID)
 			c.SendError(fmt.Sprintf("Unknown message type: %s", incoming.Type))
 		}
 	}
@@ -99,7 +107,7 @@ func (c *Client) TrySend(msg []byte) bool {
 	case c.Send <- msg:
 		return true
 	default:
-		log.Printf("[WS] Send buffer full for %s (id: %d), dropped message", c.Username, c.UserID)
+		slog.Warn("WebSocket send buffer full, dropped message", "username", c.Username, "user_id", c.UserID)
 		return false
 	}
 }

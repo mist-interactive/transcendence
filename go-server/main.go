@@ -6,17 +6,43 @@ import (
 	"dbBackend/handlers"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	_ "net/http/pprof" //debug purposes
 	"os"
+	"strings"
 	"time"
 )
 
 func main() {
-	postgres, err := db.InitDB()
+	devMode := os.Getenv("ENV")
 
+	logLevel := slog.LevelDebug
+	if devMode == "production" {
+		logLevel = slog.LevelInfo
+	}
+	if envLevel := os.Getenv("LOG_LEVEL"); envLevel != "" {
+		switch strings.ToLower(envLevel) {
+		case "debug":
+			logLevel = slog.LevelDebug
+		case "info":
+			logLevel = slog.LevelInfo
+		case "warn":
+			logLevel = slog.LevelWarn
+		case "error":
+			logLevel = slog.LevelError
+		}
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+	slog.SetDefault(logger)
+
+	postgres, err := db.InitDB()
 	if err != nil {
-		log.Fatal("error connecting to db")
+		slog.Error("Database connection failed", "error", err)
+		os.Exit(1)
 	}
 	defer postgres.Close()
 
@@ -24,14 +50,14 @@ func main() {
 	err = db.RunMigrations(ctx, postgres)
 	if err != nil {
 		cancel()
-		log.Fatalf("%v\n", err)
+		slog.Error("Database migration failed", "error", err)
+		os.Exit(1)
 	}
 
-	devMode := os.Getenv("ENV")
 	if devMode != "production" {
 		err = db.SeedDevDatabase(ctx, postgres)
 		if err != nil {
-			log.Printf("Seeding dev users failed: %v", err)
+			slog.Warn("Seeding dev users failed", "error", err)
 		}
 	}
 	cancel()
@@ -39,9 +65,13 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
 	handlers.RegisterRoutes(mux, postgres)
-	fmt.Println("Server starting on port 8080...")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
-		log.Fatal("error starting server")
+
+	loggedHandler := handlers.RequestLogger(mux)
+
+	slog.Info("Server starting", "port", 8080, "env", devMode, "log_level", logLevel.String())
+	if err := http.ListenAndServe(":8080", loggedHandler); err != nil {
+		slog.Error("Server terminated unexpectedly", "error", err)
+		os.Exit(1)
 	}
 }
 

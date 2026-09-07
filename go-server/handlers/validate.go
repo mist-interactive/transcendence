@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"unicode"
@@ -20,9 +21,11 @@ func init() {
 func DecodeAndValidate[T any](r *http.Request) (T, error) {
 	var request T
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		slog.Warn("payload json decode error", "path", r.URL.Path, "error", err)
 		return request, fmt.Errorf("JSON decoder error: %v", err)
 	}
 	if err := validate.Struct(request); err != nil {
+		slog.Warn("payload validation error", "path", r.URL.Path, "error", err)
 		return request, fmt.Errorf("Validation error: %v", err)
 	}
 	return request, nil

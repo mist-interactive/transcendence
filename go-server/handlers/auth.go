@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"dbBackend/models"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -26,14 +27,18 @@ func (h *Handler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 		Where("username = ?", request.Username).
 		Scan(r.Context())
 	if err != nil {
+		slog.Warn("login failed: user not found", "username", request.Username)
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.PWHash), []byte(request.Password))
 	if err != nil {
+		slog.Warn("login failed: incorrect password", "username", request.Username, "user_id", user.ID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+
+	slog.Info("login successful", "username", user.Username, "user_id", user.ID)
 
 	sessionToken := rand.Text()
 	sessionDuration := 24 * time.Hour

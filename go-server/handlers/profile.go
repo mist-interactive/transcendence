@@ -4,19 +4,18 @@ import (
 	"dbBackend/models"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
 
 func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
-	log.Println("--> ProfileGet hit!")
-
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	slog.Debug("profile get request", "user_id", userID)
 	profile := new(models.UserProfile)
 	err := h.DB.NewSelect().
 		Table("users").
@@ -84,11 +83,11 @@ func isProfilePatchEmpty(p *models.ProfilePatchInput) bool {
 
 func (h *Handler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
 	userStr := r.PathValue("username")
-	log.Printf("Getting profile with username '%s'\n", userStr)
 	if userStr == "" {
 		http.Error(w, "No username provided", http.StatusBadRequest)
 		return
 	}
+	slog.Debug("profile get by username request", "username", userStr)
 	profile := new(models.UserProfile)
 	err := h.DB.NewSelect().
 		Table("users").
@@ -111,12 +110,13 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	log.Printf("Deleting user '%d'\n", userID)
+	slog.Info("profile deleting user account", "user_id", userID)
 	ctx := r.Context()
 
 	// Begin a transaction: a connected set of database actions, that can be undone if any of them goes wrong
 	tx, err := h.DB.BeginTx(ctx, nil)
 	if err != nil {
+		slog.Error("profile delete begin tx failed", "user_id", userID, "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
