@@ -13,15 +13,21 @@ type PresenceSync struct {
 	friendIDs []int64
 }
 
+const (
+	inviteDisplayDuration = 20               // Duration in seconds for client-side countdown timer display
+	inviteTTL             = 25 * time.Second // Server-side TTL (20s client timer + 5s network latency buffer)
+	invitePruneInterval   = 30 * time.Second // Periodic memory sweep interval for stale expired invites
+)
+
 type Hub struct {
-	clients      map[int64]*Client  // map of Clients connected to the Hub. key is the userID
-	register     chan *Client       // way to add Clients to the Hub
-	unregister   chan *Client       // way to remove Clients from the Hub
-	unicast      chan UserMessage   // Universal channel to deliver data to any specific user
-	presenceSync chan PresenceSync  // Channel to update a users friends that they came online
-	invites      map[inviteKey]bool // In-memory pending challenges
-	matchAction  chan MatchAction   // Match invitation events dispatched to the Hub
-	store        DataStore          // DB connection
+	clients      map[int64]*Client       // map of Clients connected to the Hub. key is the userID
+	register     chan *Client            // way to add Clients to the Hub
+	unregister   chan *Client            // way to remove Clients from the Hub
+	unicast      chan UserMessage        // Universal channel to deliver data to any specific user
+	presenceSync chan PresenceSync       // Channel to update a users friends that they came online
+	invites      map[inviteKey]time.Time // In-memory pending challenges with creation timestamp
+	matchAction  chan MatchAction        // Match invitation events dispatched to the Hub
+	store        DataStore               // DB connection
 }
 
 // create a new Hub using the specified DB connection
@@ -32,7 +38,7 @@ func NewHub(store DataStore) *Hub {
 		unregister:   make(chan *Client),
 		unicast:      make(chan UserMessage),
 		presenceSync: make(chan PresenceSync),
-		invites:      make(map[inviteKey]bool),
+		invites:      make(map[inviteKey]time.Time),
 		matchAction:  make(chan MatchAction),
 		store:        store,
 	}
@@ -40,6 +46,9 @@ func NewHub(store DataStore) *Hub {
 
 // main loop of the service: notice when clients come and go, and when messages need to be sent
 func (h *Hub) Run() {
+	pruneTicker := time.NewTicker(invitePruneInterval)
+	defer pruneTicker.Stop()
+
 	for {
 		select {
 		case client := <-h.register:
@@ -58,6 +67,8 @@ func (h *Hub) Run() {
 			h.handlePresenceSync(sync.client, sync.friendIDs)
 		case action := <-h.matchAction:
 			h.handleMatchAction(action)
+		case <-pruneTicker.C:
+			h.pruneExpiredInvites()
 		}
 	}
 }
@@ -87,10 +98,35 @@ func (h *Hub) handleUnregister(client *Client) {
 	}
 }
 
+// pruneExpiredInvites sweeps h.invites and removes any entries that have exceeded inviteTTL.
+func (h *Hub) pruneExpiredInvites() {
+	now := time.Now()
+	pruned := 0
+	for key, createdAt := range h.invites {
+		if now.Sub(createdAt) > inviteTTL {
+			delete(h.invites, key)
+			pruned++
+		}
+	}
+	if pruned > 0 {
+		slog.Debug("Pruned expired match invites from memory",
+			"pruned_count", pruned,
+			"remaining_invites", len(h.invites),
+		)
+	}
+}
+
 // cleanUpInvites cancels all pending invites involving the disconnected user and notifies the other party.
 func (h *Hub) cleanUpInvites(username string) int {
 	cleaned := 0
-	for key := range h.invites {
+	now := time.Now()
+	for key, createdAt := range h.invites {
+		// Ignore and delete invites that already timed out
+		if now.Sub(createdAt) > inviteTTL {
+			delete(h.invites, key)
+			continue
+		}
+
 		if key.challenger == username {
 			delete(h.invites, key)
 			cleaned++
@@ -205,8 +241,8 @@ func (h *Hub) handleMatchAction(action MatchAction) {
 	}
 }
 
-// onInviteSend validates an outgoing challenge, registers it in h.invites, and delivers
-// a "match_invite_recv" notification to the target player if they are currently connected.
+// onInviteSend validates an outgoing challenge, registers it in h.invites with a timestamp,
+// enforces single active invite / duplicate prevention, and delivers "match_invite_recv" to the target.
 func (h *Hub) onInviteSend(sender *Client, target string) {
 	if sender.Username == target {
 		slog.Warn("Match invite rejected: self challenge", "challenger", sender.Username)
@@ -221,27 +257,55 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 		return
 	}
 
-	key := inviteKey{challenger: sender.Username, target: target}
-	alreadyPending := h.invites[key]
+	now := time.Now()
 
-	if alreadyPending {
-		slog.Warn("Duplicate match invite sent while already pending",
+	// 1. Check if this challenger already has an unexpired challenge to the exact same target
+	key := inviteKey{challenger: sender.Username, target: target}
+	if createdAt, exists := h.invites[key]; exists && now.Sub(createdAt) < inviteTTL {
+		slog.Warn("Match invite rejected: challenge already pending",
 			"challenger", sender.Username,
 			"target", target,
-			"total_pending_invites", len(h.invites),
+			"remaining_seconds", int((inviteTTL - now.Sub(createdAt)).Seconds()),
 		)
-	} else {
-		slog.Info("Match invite sent",
-			"challenger", sender.Username,
-			"target", target,
-			"total_pending_invites", len(h.invites)+1,
-		)
+		sender.SendError(fmt.Sprintf("Challenge to '%s' is already pending", target))
+		return
 	}
 
-	h.invites[key] = true
+	// 2. Check if the target has already challenged this sender (mutual challenge safeguard)
+	reverseKey := inviteKey{challenger: target, target: sender.Username}
+	if createdAt, exists := h.invites[reverseKey]; exists && now.Sub(createdAt) < inviteTTL {
+		slog.Warn("Match invite rejected: reverse challenge pending",
+			"challenger", sender.Username,
+			"target", target,
+		)
+		sender.SendError(fmt.Sprintf("'%s' has already challenged you! Please accept their invite.", target))
+		return
+	}
+
+	// 3. Prevent challenger from issuing concurrent challenges to different friends
+	for k, createdAt := range h.invites {
+		if k.challenger == sender.Username && now.Sub(createdAt) < inviteTTL {
+			slog.Warn("Match invite rejected: challenger already has active outgoing invite",
+				"challenger", sender.Username,
+				"active_target", k.target,
+			)
+			sender.SendError(fmt.Sprintf("You already have an active challenge to '%s'", k.target))
+			return
+		}
+	}
+
+	h.invites[key] = now
+	slog.Info("Match invite sent",
+		"challenger", sender.Username,
+		"target", target,
+		"duration_sec", inviteDisplayDuration,
+		"total_pending_invites", len(h.invites),
+	)
+
 	inviteBytes, err := EncodeMessage(TypeInviteRecv, MatchInvitePayload{
 		Username: sender.Username,
 		Status:   "pending",
+		Duration: inviteDisplayDuration,
 	})
 	if err == nil {
 		targetClient.TrySend(inviteBytes)
@@ -249,12 +313,14 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 }
 
 // onInviteResponse handles an accept or decline from the target player.
-// It verifies that a challenge is actively pending in h.invites (anti-spoof protection).
+// It verifies that a challenge is actively pending and within the TTL in h.invites.
 // If accepted, it deletes the invite and launches createAndStartMatch in a separate goroutine.
 // If declined, it deletes the invite and forwards the decline to the challenger.
 func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 	key := inviteKey{challenger: challenger, target: sender.Username}
-	if !h.invites[key] {
+	createdAt, exists := h.invites[key]
+	if !exists || time.Since(createdAt) > inviteTTL {
+		delete(h.invites, key)
 		slog.Warn("Match invite response rejected: invite not found or expired",
 			"responder", sender.Username,
 			"challenger", challenger,
@@ -297,7 +363,9 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 // to the target player to dismiss the challenge prompt on their client.
 func (h *Hub) onInviteCancel(sender *Client, target string) {
 	key := inviteKey{challenger: sender.Username, target: target}
-	if !h.invites[key] {
+	createdAt, exists := h.invites[key]
+	if !exists || time.Since(createdAt) > inviteTTL {
+		delete(h.invites, key)
 		slog.Warn("Match invite cancel rejected: invite not found or expired",
 			"challenger", sender.Username,
 			"target", target,

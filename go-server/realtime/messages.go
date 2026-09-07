@@ -33,6 +33,7 @@ type ErrorPayload struct {
 type MatchInvitePayload struct {
 	Username string `json:"username" validate:"required,min=3,max=50"`
 	Status   string `json:"status,omitempty" validate:"omitempty,oneof=pending accepted declined canceled"`
+	Duration int    `json:"duration,omitempty"`
 }
 
 type MatchSessionPayload struct {
