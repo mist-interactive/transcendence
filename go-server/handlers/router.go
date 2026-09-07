@@ -95,6 +95,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	protected.HandleFunc("DELETE /friends/{id}", h.FriendDelete)
 
 	protected.HandleFunc("GET /messages/{friend_name}", h.MessagesGetHistory)
+	protected.HandleFunc("PATCH /messages/{friend_name}/read", h.MessageSetRead)
 
 	// Internal routes protected by APIGuard
 
