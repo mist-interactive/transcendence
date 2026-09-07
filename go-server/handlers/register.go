@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"dbBackend/models"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -27,5 +28,6 @@ func (h *Handler) TryRegister(w http.ResponseWriter, r *http.Request) {
 		HandleDBError(w, err, "Insert User")
 		return
 	}
+	slog.Info("user registered successfully", "user_id", newUser.ID, "username", newUser.Username, "email", newUser.Email)
 	w.WriteHeader(http.StatusCreated)
 }

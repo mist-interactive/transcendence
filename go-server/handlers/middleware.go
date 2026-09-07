@@ -6,10 +6,11 @@ import (
 	"crypto/subtle"
 	"dbBackend/models"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -18,12 +19,72 @@ type contextKey string
 
 const userContextKey contextKey = "user"
 const userIDKey contextKey = "user_id"
+const requestInfoKey contextKey = "request_info"
+
+type RequestInfo struct {
+	UserID *int64
+}
+
+type responseWriterRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rec *responseWriterRecorder) WriteHeader(code int) {
+	rec.statusCode = code
+	rec.ResponseWriter.WriteHeader(code)
+}
+
+// RequestLogger is an outer HTTP middleware that logs every request's method, path,
+// status code, latency, remote address, and authenticated user ID using log/slog.
+func RequestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &responseWriterRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		info := &RequestInfo{}
+		ctx := context.WithValue(r.Context(), requestInfoKey, info)
+
+		next.ServeHTTP(rec, r.WithContext(ctx))
+
+		duration := time.Since(start)
+		attrs := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.statusCode,
+			"duration_ms", duration.Milliseconds(),
+			"remote_ip", r.RemoteAddr,
+		}
+		if r.URL.RawQuery != "" {
+			attrs = append(attrs, "query", r.URL.RawQuery)
+		}
+		if info.UserID != nil {
+			attrs = append(attrs, "user_id", *info.UserID)
+		}
+
+		if r.URL.Path == "/api/health" {
+			slog.Debug("http healthcheck", attrs...)
+		} else if rec.statusCode >= 500 {
+			slog.Error("http request error", attrs...)
+		} else if rec.statusCode >= 400 {
+			slog.Warn("http request warning", attrs...)
+		} else {
+			slog.Info("http request", attrs...)
+		}
+	})
+}
+
+func setRequestInfoUserID(ctx context.Context, id int64) {
+	if info, ok := ctx.Value(requestInfoKey).(*RequestInfo); ok {
+		info.UserID = &id
+	}
+}
 
 // Middleware for confirming a session token exists in DB. TODO: check expiration
 func (h *Handler) SessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("session_id")
 		if err != nil {
+			slog.Warn("session auth failed: missing cookie", "path", r.URL.Path, "remote_ip", r.RemoteAddr)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -34,9 +95,11 @@ func (h *Handler) SessionGuard(next http.Handler) http.Handler {
 			Where("session_token = ?", cookie.Value).
 			Scan(r.Context())
 		if err != nil {
+			slog.Warn("session auth failed: invalid session token", "path", r.URL.Path, "remote_ip", r.RemoteAddr)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+		setRequestInfoUserID(r.Context(), session.User.ID)
 		ctx := context.WithValue(r.Context(), userContextKey, session.User)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -52,14 +115,17 @@ func (h *Handler) JWTGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenStr := extractBearerToken(r)
 		if tokenStr == "" {
+			slog.Warn("jwt auth failed: missing bearer token", "path", r.URL.Path, "remote_ip", r.RemoteAddr)
 			http.Error(w, "Unauthorized: Missing Bearer token", http.StatusUnauthorized)
 			return
 		}
 		claims, err := ValidateToken(tokenStr, h.PublicKey)
 		if err != nil {
+			slog.Warn("jwt auth failed: invalid or expired token", "path", r.URL.Path, "remote_ip", r.RemoteAddr, "error", err)
 			http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
 			return
 		}
+		setRequestInfoUserID(r.Context(), claims.UserID)
 		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID) //add the user ID to context
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -88,7 +154,7 @@ func (h *Handler) APIGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := ExtractAPIKey(r)
 		if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(h.APIKey)) != 1 {
-			log.Printf("API key '%s' failed comparison to '%s'\n", key, h.APIKey)
+			slog.Warn("api key auth failed", "path", r.URL.Path, "remote_ip", r.RemoteAddr)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -110,9 +176,11 @@ func InjectPathIDContext(next http.HandlerFunc) http.HandlerFunc {
 		idStr := r.PathValue("id")
 		userID, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
+			slog.Warn("invalid user id in path", "path", r.URL.Path, "id_str", idStr)
 			http.Error(w, "Invalid user ID in path", http.StatusBadRequest)
 			return
 		}
+		setRequestInfoUserID(r.Context(), userID)
 		ctx := context.WithValue(r.Context(), userIDKey, userID)
 		next(w, r.WithContext(ctx))
 	}
