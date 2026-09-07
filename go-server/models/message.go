@@ -18,9 +18,9 @@ type Message struct {
 }
 
 type MessageCreateInput struct {
-	SenderID    int64  `json:"sender_id" validate:"required"`
-	RecipientID int64  `json:"recipient_id" validate:"required"`
-	Content     string `json:"content" validate:"required,max=2000"`
+	SenderID  int64  `json:"sender_id" validate:"required"`
+	Recipient string `json:"recipient_id" validate:"required,min=3,max=50"`
+	Content   string `json:"content" validate:"required,max=2000"`
 }
 
 type MessageSetReadInput struct {

@@ -91,6 +91,7 @@ var messageRoutes = map[MessageType]WSHandlerFunc{
 	TypeInviteSend:     bind((*Client).HandleMatchInvite),
 	TypeInviteResponse: bind((*Client).HandleMatchInviteResponse),
 	TypeInviteCancel:   bind((*Client).HandleMatchInviteCancel),
+	TypeDMSend:         bind((*Client).HandleSendMsg),
 }
 
 // helper to send messages without blocking

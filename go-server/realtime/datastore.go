@@ -15,6 +15,7 @@ import (
 type DataStore interface {
 	GetFriendsList(ctx context.Context, userID int64) ([]int64, error)
 	CreateMatch(ctx context.Context, playerOne, playerTwo string) (int64, error)
+	SaveMessage(ctx context.Context, userID int64, recipient, content string) (*models.Message, error)
 }
 
 type HttpDataStore struct {
@@ -99,4 +100,14 @@ func (s *HttpDataStore) CreateMatch(ctx context.Context, playerOne, playerTwo st
 		return 0, err
 	}
 	return res.ID, nil
+}
+
+// SaveMessage calls POST /api/internal/messages to persist chat messages.
+func (s *HttpDataStore) SaveMessage(ctx context.Context, userID int64, recipient, content string) (*models.Message, error) {
+	input := models.MessageCreateInput{
+		SenderID:  userID,
+		Recipient: recipient,
+		Content:   content,
+	}
+	return doRequest[models.Message](ctx, s, http.MethodPost, "/api/internal/messages", input, http.StatusCreated)
 }

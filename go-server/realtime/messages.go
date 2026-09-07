@@ -3,6 +3,7 @@ package realtime
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -15,6 +16,10 @@ const (
 	TypeInitialPresence MessageType = "initial_presence"
 	TypePresenceUpdate  MessageType = "presence_update"
 
+	// Direct messaging protocol
+	TypeDMSend MessageType = "direct_message_send"
+	TypeDMRecv MessageType = "direct_message_recv"
+
 	// Match invitation protocol
 	TypeInviteSend     MessageType = "match_invite_send"
 	TypeInviteRecv     MessageType = "match_invite_recv"
@@ -23,11 +28,19 @@ const (
 	TypeMatchStarted   MessageType = "match_started"
 
 	// Generic error notification
-	TypeError          MessageType = "error"
+	TypeError MessageType = "error"
 )
 
 type ErrorPayload struct {
 	Message string `json:"message"`
+}
+
+// A unified payload used by all the direct_message_* types.
+type DMPayload struct {
+	ID        int64      `json:"id,omitempty"`
+	Username  string     `json:"username" validate:"required,min=3,max=50"`
+	Content   string     `json:"content,omitempty" validate:"omitempty,min=1,max=2000"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
 
 type MatchInvitePayload struct {
@@ -73,6 +86,7 @@ type WebsocketMessage struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// Presence update payloads
 type InitialPresencePayload struct {
 	OnlineUsers []string `json:"online_users"`
 }
@@ -113,7 +127,7 @@ func UnmarshalAndValidate[T any](raw json.RawMessage) (T, error) {
 	return target, nil
 }
 
-// EncodeMessage encodes a typed payload into a WebsocketMessage JSON frame
+// helper to encode a message as a WebsocketMessage struct
 func EncodeMessage(msgType MessageType, payload any) ([]byte, error) {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
