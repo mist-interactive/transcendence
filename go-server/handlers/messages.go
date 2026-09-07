@@ -53,10 +53,14 @@ func (h *Handler) MessageCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
+	recipient, err := h.getUserByUsername(r.Context(), input.Recipient)
+	if err != nil {
+		http.Error(w, "Recipient user not found", http.StatusBadRequest)
+		return
+	}
 	message := &models.Message{
 		SenderID:    input.SenderID,
-		RecipientID: input.RecipientID,
+		RecipientID: recipient.ID,
 		Content:     input.Content,
 		IsRead:      false,
 	}
@@ -67,7 +71,7 @@ func (h *Handler) MessageCreate(w http.ResponseWriter, r *http.Request) {
 		Scan(r.Context())
 
 	if err != nil {
-		http.Error(w, "Failed to create message: "+err.Error(), http.StatusInternalServerError)
+		HandleDBError(w, err, "creating message")
 		return
 	}
 
