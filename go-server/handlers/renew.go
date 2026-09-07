@@ -22,7 +22,7 @@ func (h *Handler) IssueToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	lifetime := time.Second * 60
+	lifetime := time.Minute * 15
 	claims := JWTClaims{
 		UserID:   user.ID,
 		Username: user.Username,
