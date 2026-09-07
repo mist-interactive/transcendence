@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
 	"crypto/rsa"
 	"crypto/subtle"
 	"dbBackend/models"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,6 +35,24 @@ type responseWriterRecorder struct {
 func (rec *responseWriterRecorder) WriteHeader(code int) {
 	rec.statusCode = code
 	rec.ResponseWriter.WriteHeader(code)
+}
+
+func (rec *responseWriterRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := rec.ResponseWriter.(http.Hijacker); ok {
+		rec.statusCode = http.StatusSwitchingProtocols
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+}
+
+func (rec *responseWriterRecorder) Flush() {
+	if fl, ok := rec.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
+func (rec *responseWriterRecorder) Unwrap() http.ResponseWriter {
+	return rec.ResponseWriter
 }
 
 // RequestLogger is an outer HTTP middleware that logs every request's method, path,
