@@ -1,0 +1,208 @@
+{
+  "info": {
+    "_postman_id": "f1eca3a3-38a5-4f09-8161-fb1efcf04e24",
+    "name": "Delete User Sequence",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "56387902"
+  },
+  "item": [
+    {
+      "name": "register new user",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const uniqueId = Date.now();",
+              "pm.environment.set(\"testUsername\", `user_${uniqueId}`);",
+              "pm.environment.set(\"testEmail\", `user_${uniqueId}@test.postman`);",
+              "pm.environment.set(\"testPassword\", \"Pass1234!\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{testUsername}}\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/register",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "login new user",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{testUsername}}\",\n  \"password\": \"{{testPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "get jwt",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const resp = pm.response.json();",
+              "const token = resp.token;",
+              "",
+              "if (token) {",
+              "    const payloadBase64 = token.split('.')[1];",
+              "    const decodedPayload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));",
+              "    console.log(\"Decoded JWT Payload:\", decodedPayload);",
+              "",
+              "    pm.test(\"Token payload has an expiry (exp) claim\", function () {",
+              "        pm.expect(decodedPayload).to.have.property(\"exp\");",
+              "    });",
+              "",
+              "    pm.test(\"Token is not expired\", function () {",
+              "        pm.expect(decodedPayload.exp * 1000).to.be.above(Date.now());",
+              "    });",
+              "",
+              "    if (decodedPayload.exp) {",
+              "        const expDate = new Date(decodedPayload.exp * 1000);",
+              "        console.log(\"Token Expires At:\", expDate.toLocaleString());",
+              "    }",
+              "    pm.environment.set(\"testUserToken\", token);",
+              "    const userId = decodedPayload.user_id;",
+              "    pm.environment.set(\"testUserId\", userId);",
+              "} else {",
+              "    console.warn(\"No token found in response body!\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "{{base_url}}/api/renew",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "renew"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "make match",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"player_one\": {{testUserId}},\n  \"player_two\": 1 \n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/internal/matches",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "internal",
+            "matches"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "delete created profile",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{testUserToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "{{base_url}}/api/protected/profile",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "protected",
+            "profile"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

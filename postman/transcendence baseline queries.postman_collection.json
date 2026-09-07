@@ -1,0 +1,348 @@
+{
+  "info": {
+    "_postman_id": "f2201975-8189-4b86-bb4f-d762dc9a7232",
+    "name": "transcendence baseline queries",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "56387902"
+  },
+  "item": [
+    {
+      "name": "register",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n\"username\": \"nraatika\",\n\"email\": \"nraatika@student.hive.fi\",\n\"password\": \"testing123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/register",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "register Copy",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n\"username\": \"mhirvasm\",\n\"email\": \"mhirvasm@student.hive.fi\",\n\"password\": \"testing123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/register",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "login",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"username\": \"nraatika\",\n    \"password\": \"testing123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "renew",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const response = pm.response.json();",
+              "",
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response time is below 1000ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "",
+              "pm.test(\"Response is valid JSON\", function () {",
+              "    pm.expect(response).to.be.an(\"object\");",
+              "});",
+              "",
+              "pm.test(\"Response has a token\", function () {",
+              "    pm.expect(response).to.have.property(\"token\");",
+              "    pm.expect(response.token).to.be.a(\"string\").and.to.not.be.empty;",
+              "});",
+              "",
+              "pm.test(\"Token is a valid JWT (three segments)\", function () {",
+              "    pm.expect(response.token.split(\".\")).to.have.lengthOf(3);",
+              "});",
+              "",
+              "const token = response.token;",
+              "",
+              "if (token) {",
+              "    const payloadBase64 = token.split('.')[1];",
+              "    const decodedPayload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));",
+              "    console.log(\"Decoded JWT Payload:\", decodedPayload);",
+              "",
+              "    pm.test(\"Token payload has an expiry (exp) claim\", function () {",
+              "        pm.expect(decodedPayload).to.have.property(\"exp\");",
+              "    });",
+              "",
+              "    pm.test(\"Token is not expired\", function () {",
+              "        pm.expect(decodedPayload.exp * 1000).to.be.above(Date.now());",
+              "    });",
+              "",
+              "    if (decodedPayload.exp) {",
+              "        const expDate = new Date(decodedPayload.exp * 1000);",
+              "        console.log(\"Token Expires At:\", expDate.toLocaleString());",
+              "    }",
+              "    pm.environment.set(\"authToken\", token);",
+              "} else {",
+              "    console.warn(\"No token found in response body!\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/renew",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "renew"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "create match",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const response = pm.response.json();",
+              "",
+              "pm.test(\"Match created successfully\", function () {",
+              "    pm.response.to.have.status(201);",
+              "    pm.expect(response.id).to.exist;",
+              "});",
+              "",
+              "pm.collectionVariables.set(\"match_id\", response.id);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"player_one\": 2,\n    \"player_two\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/internal/matches",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "internal",
+            "matches"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Patch-match-with-id",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"result\": \"player1_win\",\n    \"status\": \"finished\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/internal/matches/{{match_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "internal",
+            "matches",
+            "{{match_id}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "get profile",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{authToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "{{base_url}}/api/protected/profile",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "protected",
+            "profile"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "get-username-profile",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{authToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "{{base_url}}/api/protected/profile/usva",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "protected",
+            "profile",
+            "usva"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "update profile",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{authToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"bio\": \"Now with some data\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/protected/profile",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "protected",
+            "profile"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "match_id",
+      "value": ""
+    }
+  ]
+}
