@@ -2,7 +2,8 @@ package realtime
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -63,9 +64,11 @@ func (h *Hub) Run() {
 
 func (h *Hub) handleRegister(client *Client) {
 	if oldClient, alreadyConnected := h.clients[client.UserID]; alreadyConnected {
+		slog.Info("Disconnecting previous connection for user", "user_id", client.UserID, "username", client.Username)
 		oldClient.Conn.Close()
 	}
 	h.clients[client.UserID] = client
+	slog.Info("Client registered in hub", "user_id", client.UserID, "username", client.Username, "total_clients", len(h.clients))
 	go h.sendInitialPresence(client) //run the possibly slow DB and messaging in it's own thread
 }
 
@@ -73,13 +76,52 @@ func (h *Hub) handleUnregister(client *Client) {
 	if currentClient, ok := h.clients[client.UserID]; ok && currentClient == client { //check that this isn't an old instance of client being cleaned up, when a new connection was registered
 		delete(h.clients, client.UserID)
 		close(client.Send)
-		for key := range h.invites {
-			if key.challenger == client.Username || key.target == client.Username {
-				delete(h.invites, key)
-			}
-		}
+		cleanedInvites := h.cleanUpInvites(client.Username)
+		slog.Info("Client unregistered from hub",
+			"user_id", client.UserID,
+			"username", client.Username,
+			"total_clients", len(h.clients),
+			"cleaned_invites", cleanedInvites,
+		)
 		go h.broadcastOfflineStatus(client.UserID, client.Username) //run the possibly slow DB and messaging in it's own thread
 	}
+}
+
+// cleanUpInvites cancels all pending invites involving the disconnected user and notifies the other party.
+func (h *Hub) cleanUpInvites(username string) int {
+	cleaned := 0
+	for key := range h.invites {
+		if key.challenger == username {
+			delete(h.invites, key)
+			cleaned++
+			cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
+				Username: username,
+				Status:   "canceled",
+			})
+			if err == nil {
+				h.sendToUsernameDirect(key.target, cancelBytes)
+			}
+			slog.Info("Canceled pending invite: challenger disconnected",
+				"challenger", username,
+				"target", key.target,
+			)
+		} else if key.target == username {
+			delete(h.invites, key)
+			cleaned++
+			cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
+				Username: username,
+				Status:   "canceled",
+			})
+			if err == nil {
+				h.sendToUsernameDirect(key.challenger, cancelBytes)
+			}
+			slog.Info("Canceled pending invite: target disconnected",
+				"challenger", key.challenger,
+				"target", username,
+			)
+		}
+	}
+	return cleaned
 }
 
 // Contain DB access and messaging to it's own function, so it can be run in a thread
@@ -88,13 +130,14 @@ func (h *Hub) broadcastOfflineStatus(userID int64, username string) {
 	defer cancel()
 	friendIDs, err := h.store.GetFriendsList(ctx, userID)
 	if err != nil {
-		log.Println("problem with DB connection on unregister:", err)
+		slog.Error("Problem with DB connection on unregister", "user_id", userID, "username", username, "error", err)
 		return
 	}
 
 	// Marshal offline status message
 	offlineMessage, err := EncodeMessage(TypePresenceUpdate, PresenceUpdatePayload{username, false})
 	if err != nil {
+		slog.Error("Failed to encode offline presence update", "user_id", userID, "username", username, "error", err)
 		return
 	}
 
@@ -109,7 +152,7 @@ func (h *Hub) sendInitialPresence(client *Client) {
 	defer cancel()
 	friendIDs, err := h.store.GetFriendsList(ctx, client.UserID)
 	if err != nil {
-		log.Println("problem with DB connection")
+		slog.Error("Problem with DB connection on initial presence", "user_id", client.UserID, "username", client.Username, "error", err)
 		return
 	}
 	h.presenceSync <- PresenceSync{client: client, friendIDs: friendIDs} //sending presence update requires accessing the clients map, only the main thread is allowed to do that, so put it on a channel for it to read
@@ -130,15 +173,23 @@ func (h *Hub) handlePresenceSync(client *Client, friendIDs []int64) {
 	}
 	initialMessage, _ := EncodeMessage(TypeInitialPresence, InitialPresencePayload{onlineFriendUsernames})
 	client.TrySend(initialMessage)
+	slog.Debug("Dispatched presence sync", "user_id", client.UserID, "username", client.Username, "online_friends", len(onlineFriendUsernames))
 }
 
-func (h *Hub) sendToUsernameDirect(username string, data []byte) {
+func (h *Hub) findClientByUsername(username string) *Client {
 	for _, client := range h.clients {
 		if client.Username == username {
-			client.TrySend(data)
-			break
+			return client
 		}
 	}
+	return nil
+}
+
+func (h *Hub) sendToUsernameDirect(username string, data []byte) bool {
+	if client := h.findClientByUsername(username); client != nil {
+		return client.TrySend(data)
+	}
+	return false
 }
 
 // handleMatchAction serves as a thin dispatcher on the Hub's single-threaded event loop.
@@ -158,16 +209,42 @@ func (h *Hub) handleMatchAction(action MatchAction) {
 // a "match_invite_recv" notification to the target player if they are currently connected.
 func (h *Hub) onInviteSend(sender *Client, target string) {
 	if sender.Username == target {
+		slog.Warn("Match invite rejected: self challenge", "challenger", sender.Username)
 		sender.SendError("Cannot invite yourself to a match")
 		return
 	}
-	h.invites[inviteKey{challenger: sender.Username, target: target}] = true
+
+	targetClient := h.findClientByUsername(target)
+	if targetClient == nil {
+		slog.Warn("Match invite rejected: target user is offline", "challenger", sender.Username, "target", target)
+		sender.SendError(fmt.Sprintf("User '%s' is not online", target))
+		return
+	}
+
+	key := inviteKey{challenger: sender.Username, target: target}
+	alreadyPending := h.invites[key]
+
+	if alreadyPending {
+		slog.Warn("Duplicate match invite sent while already pending",
+			"challenger", sender.Username,
+			"target", target,
+			"total_pending_invites", len(h.invites),
+		)
+	} else {
+		slog.Info("Match invite sent",
+			"challenger", sender.Username,
+			"target", target,
+			"total_pending_invites", len(h.invites)+1,
+		)
+	}
+
+	h.invites[key] = true
 	inviteBytes, err := EncodeMessage(TypeInviteRecv, MatchInvitePayload{
 		Username: sender.Username,
 		Status:   "pending",
 	})
 	if err == nil {
-		h.sendToUsernameDirect(target, inviteBytes)
+		targetClient.TrySend(inviteBytes)
 	}
 }
 
@@ -178,11 +255,23 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 	key := inviteKey{challenger: challenger, target: sender.Username}
 	if !h.invites[key] {
-		log.Printf("[WS] %s tried to respond to non-existent invite from %s", sender.Username, challenger)
+		slog.Warn("Match invite response rejected: invite not found or expired",
+			"responder", sender.Username,
+			"challenger", challenger,
+			"status", status,
+			"total_pending_invites", len(h.invites),
+		)
 		sender.SendError("Invite not found or has expired")
 		return
 	}
 	delete(h.invites, key)
+
+	slog.Info("Match invite response processed",
+		"responder", sender.Username,
+		"challenger", challenger,
+		"status", status,
+		"remaining_pending_invites", len(h.invites),
+	)
 
 	switch status {
 	case "accepted":
@@ -194,7 +283,12 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 			Status:   "declined",
 		})
 		if err == nil {
-			h.sendToUsernameDirect(challenger, declineBytes)
+			if !h.sendToUsernameDirect(challenger, declineBytes) {
+				slog.Warn("Declined invite response could not be delivered to challenger (offline)",
+					"challenger", challenger,
+					"responder", sender.Username,
+				)
+			}
 		}
 	}
 }
@@ -203,14 +297,30 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 // to the target player to dismiss the challenge prompt on their client.
 func (h *Hub) onInviteCancel(sender *Client, target string) {
 	key := inviteKey{challenger: sender.Username, target: target}
-	if h.invites[key] {
-		delete(h.invites, key)
-		cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
-			Username: sender.Username,
-			Status:   "canceled",
-		})
-		if err == nil {
-			h.sendToUsernameDirect(target, cancelBytes)
+	if !h.invites[key] {
+		slog.Warn("Match invite cancel rejected: invite not found or expired",
+			"challenger", sender.Username,
+			"target", target,
+			"total_pending_invites", len(h.invites),
+		)
+		return
+	}
+	delete(h.invites, key)
+	slog.Info("Match invite canceled",
+		"challenger", sender.Username,
+		"target", target,
+		"remaining_pending_invites", len(h.invites),
+	)
+	cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
+		Username: sender.Username,
+		Status:   "canceled",
+	})
+	if err == nil {
+		if !h.sendToUsernameDirect(target, cancelBytes) {
+			slog.Debug("Cancel invite notification not delivered to target (offline)",
+				"challenger", sender.Username,
+				"target", target,
+			)
 		}
 	}
 }
@@ -219,9 +329,14 @@ func (h *Hub) onInviteCancel(sender *Client, target string) {
 // and insert a match record in PostgreSQL without blocking the Hub's main event loop.
 // Once the match ID is returned, it safely delivers "match_started" messages to both players.
 func (h *Hub) createAndStartMatch(challenger, responder string) {
+	slog.Info("Initiating match creation in database", "challenger", challenger, "responder", responder)
 	matchID, err := h.store.CreateMatch(context.Background(), challenger, responder)
 	if err != nil {
-		log.Printf("[WS] Failed to create match between %s and %s: %v", challenger, responder, err)
+		slog.Error("Failed to create match between players in DB",
+			"challenger", challenger,
+			"responder", responder,
+			"error", err,
+		)
 		errMsg, errEnc := EncodeMessage(TypeError, ErrorPayload{Message: "Failed to initialize match in database"})
 		if errEnc == nil {
 			h.SendToUsername(challenger, errMsg)
@@ -229,6 +344,12 @@ func (h *Hub) createAndStartMatch(challenger, responder string) {
 		}
 		return
 	}
+
+	slog.Info("Match created successfully, notifying players",
+		"match_id", matchID,
+		"challenger", challenger,
+		"responder", responder,
+	)
 
 	challengerMsg, err := EncodeMessage(TypeMatchStarted, MatchSessionPayload{
 		MatchID:  matchID,

@@ -3,6 +3,7 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -17,17 +18,20 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Player1 == input.Player2 {
+		slog.Warn("match create rejected: player cannot play themselves", "player", input.Player1)
 		http.Error(w, "Players cannot play themselves", http.StatusConflict)
 		return
 	}
 
 	p1, err := h.getUserByUsername(r.Context(), input.Player1)
 	if err != nil {
+		slog.Warn("match create failed: player 1 not found", "player1", input.Player1, "error", err)
 		http.Error(w, "Player 1 not found", http.StatusNotFound)
 		return
 	}
 	p2, err := h.getUserByUsername(r.Context(), input.Player2)
 	if err != nil {
+		slog.Warn("match create failed: player 2 not found", "player2", input.Player2, "error", err)
 		http.Error(w, "Player 2 not found", http.StatusNotFound)
 		return
 	}
@@ -45,6 +49,7 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.Info("match record created in database", "match_id", match.ID, "player1", input.Player1, "player2", input.Player2)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]any{

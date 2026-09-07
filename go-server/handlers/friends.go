@@ -5,7 +5,7 @@ import (
 	"dbBackend/models"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,6 +30,7 @@ func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if targetUser.ID == userID {
+		slog.Warn("friend request rejected: cannot friend yourself", "user_id", userID)
 		http.Error(w, "Cannot friend yourself", http.StatusBadRequest)
 		return
 	}
@@ -46,6 +47,7 @@ func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 		HandleDBError(w, err, "Adding friend request")
 		return
 	}
+	slog.Info("friend request sent", "from_user_id", userID, "to_username", input.Target, "friendship_id", f.ID)
 	//send back the id of the created entry and status of the request
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -101,7 +103,7 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	friendshipID, err := strconv.ParseInt(idStr, 10, 64)
 	now := time.Now()
-	log.Printf("Patching request id %d from user %d\n", friendshipID, userID)
+	slog.Info("friend request answered", "friendship_id", friendshipID, "user_id", userID, "status", input.Status)
 	f := models.Friendship{}
 	err = h.DB.NewUpdate().
 		Model(&f).
@@ -125,6 +127,11 @@ func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	idStr := r.PathValue("id")
 	friendshipID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Friendship ID must be a number", http.StatusBadRequest)
+		return
+	}
+	slog.Info("friend deleted", "user_id", userID, "friendship_id", friendshipID)
 	res, err := h.DB.NewDelete().
 		Model((*models.Friendship)(nil)).
 		Where("id = ?", friendshipID).

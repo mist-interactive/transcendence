@@ -1,7 +1,7 @@
 package realtime
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -23,11 +23,13 @@ func (h *Hub) ServeWS(validator TokenValidator) http.HandlerFunc {
 		// Extract & validate JWT from query string
 		tokenStr := r.URL.Query().Get("token")
 		if tokenStr == "" {
+			slog.Warn("WebSocket handshake rejected: missing token query param", "remote_ip", r.RemoteAddr)
 			http.Error(w, "Missing token query parameter", http.StatusUnauthorized)
 			return
 		}
 		userID, username, err := validator(tokenStr)
 		if err != nil {
+			slog.Warn("WebSocket handshake rejected: invalid token", "remote_ip", r.RemoteAddr, "error", err)
 			http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
 			return
 		}
@@ -35,9 +37,11 @@ func (h *Hub) ServeWS(validator TokenValidator) http.HandlerFunc {
 		// upgrade HTTP connection to persistent WebSocket
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Println("Problem upgrading to websocket")
+			slog.Error("WebSocket upgrade failed", "remote_ip", r.RemoteAddr, "user_id", userID, "username", username, "error", err)
 			return
 		}
+
+		slog.Info("WebSocket connection established", "user_id", userID, "username", username, "remote_ip", r.RemoteAddr)
 
 		client := NewClient(h, conn, userID, username)
 		h.register <- client
