@@ -30,10 +30,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 #Stage 3b: execute
 FROM debian:bookworm-slim as production
 
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-COPY --from=builder /app/backend .
+COPY --from=builder /app/backend /usr/local/bin/backend
 
 EXPOSE 8080
 
-CMD ["./backend"]
+CMD ["backend"]

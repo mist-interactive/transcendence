@@ -21,7 +21,7 @@ services:
   go-server:
     build:
       context: ./go-server
-      target: dev
+      target: ${BACKEND_TARGET:-production}
     volumes:
       - ./go-server:/app
     secrets:
