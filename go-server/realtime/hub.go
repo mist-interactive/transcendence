@@ -16,27 +16,29 @@ type PresenceSync struct {
 }
 
 type Hub struct {
-	clients      map[int64]*Client  // map of Clients connected to the Hub. key is the userID
-	register     chan *Client       // way to add Clients to the Hub
-	unregister   chan *Client       // way to remove Clients from the Hub
-	unicast      chan UserMessage   // Universal channel to deliver data to any specific user
-	presenceSync chan PresenceSync  // Channel to update a users friends that they came online
-	invites      map[inviteKey]bool // In-memory pending challenges
-	matchAction  chan MatchAction   // Match invitation events dispatched to the Hub
-	store        DataStore          // DB connection
+	clients       map[int64]*Client               // map of Clients connected to the Hub. key is the userID
+	register      chan *Client                    // way to add Clients to the Hub
+	unregister    chan *Client                    // way to remove Clients from the Hub
+	unicast       chan UserMessage                // Universal channel to deliver data to any specific user
+	presenceSync  chan PresenceSync               // Channel to update a users friends that they came online
+	invites       map[inviteKey]bool              // In-memory pending challenges
+	matchAction   chan MatchAction                // Match invitation events dispatched to the Hub
+	activeMatches map[string]*MatchSessionPayload // username -> active match session
+	store         DataStore                       // DB connection
 }
 
 // create a new Hub using the specified DB connection
 func NewHub(store DataStore) *Hub {
 	return &Hub{
-		clients:      make(map[int64]*Client),
-		register:     make(chan *Client),
-		unregister:   make(chan *Client),
-		unicast:      make(chan UserMessage, 256),
-		presenceSync: make(chan PresenceSync),
-		invites:      make(map[inviteKey]bool),
-		matchAction:  make(chan MatchAction),
-		store:        store,
+		clients:       make(map[int64]*Client),
+		register:      make(chan *Client),
+		unregister:    make(chan *Client),
+		unicast:       make(chan UserMessage),
+		presenceSync:  make(chan PresenceSync),
+		invites:       make(map[inviteKey]bool),
+		matchAction:   make(chan MatchAction),
+		activeMatches: make(map[string]*MatchSessionPayload),
+		store:         store,
 	}
 }
 
@@ -67,10 +69,13 @@ func (h *Hub) Run() {
 func (h *Hub) handleRegister(client *Client) {
 	if oldClient, alreadyConnected := h.clients[client.UserID]; alreadyConnected {
 		slog.Info("Disconnecting previous connection for user", "user_id", client.UserID, "username", client.Username)
-		oldClient.Conn.Close()
+		if oldClient.Conn != nil {
+			oldClient.Conn.Close()
+		}
 	}
 	h.clients[client.UserID] = client
 	slog.Info("Client registered in hub", "user_id", client.UserID, "username", client.Username, "total_clients", len(h.clients))
+	h.handleActiveMatchOnRegister(client)
 	go h.sendInitialPresence(client) //run the possibly slow DB and messaging in it's own thread
 }
 
@@ -79,6 +84,7 @@ func (h *Hub) handleUnregister(client *Client) {
 		delete(h.clients, client.UserID)
 		close(client.Send)
 		cleanedInvites := h.cleanUpInvites(client.Username)
+		h.handleActiveMatchOnUnregister(client)
 		slog.Info("Client unregistered from hub",
 			"user_id", client.UserID,
 			"username", client.Username,
@@ -86,6 +92,56 @@ func (h *Hub) handleUnregister(client *Client) {
 			"cleaned_invites", cleanedInvites,
 		)
 		go h.broadcastOfflineStatus(client.UserID, client.Username) //run the possibly slow DB and messaging in it's own thread
+	}
+}
+
+// handleActiveMatchOnRegister checks if the registering user is in an active match.
+// If an active session exists in memory, it immediately sends TypeActiveMatch to the client
+// and notifies the opponent via TypeOpponentReconnected. It also kicks off a background DB check
+// to synchronize state.
+func (h *Hub) handleActiveMatchOnRegister(client *Client) {
+	if session, inMatch := h.activeMatches[client.Username]; inMatch {
+		slog.Info("Reconnecting player found in memory activeMatches",
+			"user_id", client.UserID,
+			"username", client.Username,
+			"match_id", session.MatchID,
+		)
+		activeMsg, err := EncodeMessage(TypeActiveMatch, session)
+		if err == nil {
+			client.TrySend(activeMsg)
+		}
+		reconnMsg, err := EncodeMessage(TypeOpponentReconnected, MatchSessionPayload{
+			MatchID:  session.MatchID,
+			Opponent: client.Username,
+		})
+		if err == nil {
+			h.sendToUsernameDirect(session.Opponent, reconnMsg)
+		}
+	}
+
+	go h.checkActiveMatchDB(client)
+}
+
+// handleActiveMatchOnUnregister checks if the disconnected user is in an active match.
+// If so, it sends TypeOpponentDisconnected to the opponent. The match session in memory is
+// preserved (non-destructive) to allow the player to reconnect.
+func (h *Hub) handleActiveMatchOnUnregister(client *Client) {
+	session, inMatch := h.activeMatches[client.Username]
+	if !inMatch {
+		return
+	}
+
+	slog.Info("Player in active match disconnected, notifying opponent",
+		"match_id", session.MatchID,
+		"disconnected_player", client.Username,
+		"opponent", session.Opponent,
+	)
+	dcMsg, err := EncodeMessage(TypeOpponentDisconnected, MatchSessionPayload{
+		MatchID:  session.MatchID,
+		Opponent: client.Username,
+	})
+	if err == nil {
+		h.sendToUsernameDirect(session.Opponent, dcMsg)
 	}
 }
 
@@ -204,6 +260,10 @@ func (h *Hub) handleMatchAction(action MatchAction) {
 		h.onInviteResponse(action.Sender, action.Target, action.Status)
 	case ActionInviteCancel:
 		h.onInviteCancel(action.Sender, action.Target)
+	case ActionMatchStarted:
+		h.onMatchStarted(action.Target, action.Opponent, action.MatchID)
+	case ActionActiveMatchSync:
+		h.onActiveMatchSync(action.Sender, action.Response)
 	}
 }
 
@@ -329,7 +389,7 @@ func (h *Hub) onInviteCancel(sender *Client, target string) {
 
 // createAndStartMatch runs asynchronously in a worker goroutine to call the internal REST API
 // and insert a match record in PostgreSQL without blocking the Hub's main event loop.
-// Once the match ID is returned, it safely delivers "match_started" messages to both players.
+// Once the match ID is returned, it dispatches ActionMatchStarted to the Hub event loop.
 func (h *Hub) createAndStartMatch(challenger, responder string) {
 	slog.Info("Initiating match creation in database", "challenger", challenger, "responder", responder)
 	matchID, err := h.store.CreateMatch(context.Background(), challenger, responder)
@@ -347,26 +407,120 @@ func (h *Hub) createAndStartMatch(challenger, responder string) {
 		return
 	}
 
-	slog.Info("Match created successfully, notifying players",
+	slog.Info("Match created successfully, dispatching start to hub loop",
 		"match_id", matchID,
 		"challenger", challenger,
 		"responder", responder,
 	)
 
-	challengerMsg, err := EncodeMessage(TypeMatchStarted, MatchSessionPayload{
-		MatchID:  matchID,
+	h.matchAction <- MatchAction{
+		Type:     ActionMatchStarted,
+		Target:   challenger,
 		Opponent: responder,
-	})
-	if err == nil {
-		h.SendToUsername(challenger, challengerMsg)
+		MatchID:  matchID,
+	}
+}
+
+// onMatchStarted records the active match session in memory for both players
+// and delivers "match_started" messages to both players.
+func (h *Hub) onMatchStarted(p1, p2 string, matchID int64) {
+	p1Payload := &MatchSessionPayload{MatchID: matchID, Opponent: p2}
+	p2Payload := &MatchSessionPayload{MatchID: matchID, Opponent: p1}
+
+	h.activeMatches[p1] = p1Payload
+	h.activeMatches[p2] = p2Payload
+
+	p1Msg, err1 := EncodeMessage(TypeMatchStarted, p1Payload)
+	if err1 == nil {
+		h.sendToUsernameDirect(p1, p1Msg)
 	}
 
-	responderMsg, err := EncodeMessage(TypeMatchStarted, MatchSessionPayload{
-		MatchID:  matchID,
-		Opponent: challenger,
-	})
-	if err == nil {
-		h.SendToUsername(responder, responderMsg)
+	p2Msg, err2 := EncodeMessage(TypeMatchStarted, p2Payload)
+	if err2 == nil {
+		h.sendToUsernameDirect(p2, p2Msg)
+	}
+
+	slog.Info("Active match registered in memory and start broadcasted",
+		"match_id", matchID,
+		"player1", p1,
+		"player2", p2,
+	)
+}
+
+// checkActiveMatchDB performs a background database query to check if a reconnecting user
+// has an active match in progress, dispatching the result to the Hub event loop.
+func (h *Hub) checkActiveMatchDB(client *Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	activeMatch, err := h.store.GetActiveMatch(ctx, client.UserID)
+	if err != nil {
+		slog.Error("Problem checking active match in DB", "user_id", client.UserID, "username", client.Username, "error", err)
+		return
+	}
+
+	h.matchAction <- MatchAction{
+		Type:     ActionActiveMatchSync,
+		Sender:   client,
+		Response: activeMatch,
+	}
+}
+
+// onActiveMatchSync reconciles the Hub's in-memory activeMatches map with the database state.
+// If the DB reports no active match, any stale memory entry is pruned.
+// If the DB reports an active match that was not in memory (e.g. after server restart), it restores it
+// and notifies the reconnecting client and their opponent.
+func (h *Hub) onActiveMatchSync(client *Client, resp *models.ActiveMatchResponse) {
+	currentClient, isConnected := h.clients[client.UserID]
+	if !isConnected || currentClient != client {
+		return
+	}
+
+	if resp == nil {
+		// DB reports no active match for this user; clear any stale memory state
+		if session, exists := h.activeMatches[client.Username]; exists {
+			delete(h.activeMatches, client.Username)
+			if oppSession, oppExists := h.activeMatches[session.Opponent]; oppExists && oppSession.MatchID == session.MatchID {
+				delete(h.activeMatches, session.Opponent)
+			}
+			slog.Info("Cleared stale active match from memory", "username", client.Username, "match_id", session.MatchID)
+		}
+		return
+	}
+
+	session, alreadyInMemory := h.activeMatches[client.Username]
+	if !alreadyInMemory || session.MatchID != resp.MatchID {
+		payload := &MatchSessionPayload{
+			MatchID:  resp.MatchID,
+			Opponent: resp.OpponentUsername,
+		}
+		h.activeMatches[client.Username] = payload
+
+		if _, oppExists := h.activeMatches[resp.OpponentUsername]; !oppExists {
+			h.activeMatches[resp.OpponentUsername] = &MatchSessionPayload{
+				MatchID:  resp.MatchID,
+				Opponent: client.Username,
+			}
+		}
+
+		slog.Info("Restored active match from DB into memory",
+			"username", client.Username,
+			"match_id", resp.MatchID,
+			"opponent", resp.OpponentUsername,
+		)
+
+		activeMsg, err := EncodeMessage(TypeActiveMatch, payload)
+		if err == nil {
+			client.TrySend(activeMsg)
+		}
+
+		reconnMsg, err := EncodeMessage(TypeOpponentReconnected, MatchSessionPayload{
+			MatchID:  resp.MatchID,
+			Opponent: client.Username,
+		})
+		if err == nil {
+			h.sendToUsernameDirect(resp.OpponentUsername, reconnMsg)
+		}
 	}
 }
 
@@ -432,5 +586,3 @@ func (h *Hub) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error 
 	}
 	return h.NotifyUser(targetUserID, data)
 }
-
-

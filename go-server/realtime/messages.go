@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"dbBackend/models"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -31,6 +32,10 @@ const (
 	TypeFriendRequestRecv     MessageType = "friend_request_recv"
 	TypeFriendRequestResponse MessageType = "friend_request_response"
 	TypeFriendDeleted         MessageType = "friend_deleted"
+	// Match reconnection protocol
+	TypeActiveMatch          MessageType = "active_match"
+	TypeOpponentDisconnected MessageType = "opponent_disconnected"
+	TypeOpponentReconnected  MessageType = "opponent_reconnected"
 
 	// Generic error notification
 	TypeError MessageType = "error"
@@ -69,13 +74,18 @@ const (
 	ActionInviteSend MatchActionType = iota
 	ActionInviteResponse
 	ActionInviteCancel
+	ActionMatchStarted
+	ActionActiveMatchSync
 )
 
 type MatchAction struct {
-	Type   MatchActionType
-	Sender *Client
-	Target string
-	Status string
+	Type     MatchActionType
+	Sender   *Client
+	Target   string
+	Status   string
+	MatchID  int64
+	Opponent string
+	Response *models.ActiveMatchResponse
 }
 
 // UserMessage represents an internal instruction to deliver bytes to a specific user

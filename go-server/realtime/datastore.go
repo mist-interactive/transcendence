@@ -15,6 +15,7 @@ import (
 type DataStore interface {
 	GetFriendsList(ctx context.Context, userID int64) ([]int64, error)
 	CreateMatch(ctx context.Context, playerOne, playerTwo string) (int64, error)
+	GetActiveMatch(ctx context.Context, userID int64) (*models.ActiveMatchResponse, error)
 	SaveMessage(ctx context.Context, userID int64, recipient, content string) (*models.Message, error)
 }
 
@@ -110,4 +111,34 @@ func (s *HttpDataStore) SaveMessage(ctx context.Context, userID int64, recipient
 		Content:   content,
 	}
 	return doRequest[models.Message](ctx, s, http.MethodPost, "/api/internal/messages", input, http.StatusCreated)
+}
+
+// GetActiveMatch calls GET /api/internal/users/{id}/active-match to retrieve any ongoing match for a user.
+// Returns (nil, nil) if no active match is currently in progress (404 status).
+func (s *HttpDataStore) GetActiveMatch(ctx context.Context, userID int64) (*models.ActiveMatchResponse, error) {
+	path := fmt.Sprintf("/api/internal/users/%d/active-match", userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.BaseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Key", s.APIKey)
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("DB service unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request to %s failed with status %d", path, resp.StatusCode)
+	}
+
+	var result models.ActiveMatchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
 }
