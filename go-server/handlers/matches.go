@@ -61,7 +61,9 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // MatchPatch handles PATCH /api/internal/matches/{id}.
-// It is called by the Game Server when a match concludes to record the final result and status.
+// It is called by the Game Server when a match concludes to record player scores and result.
+// It maps the reported scores to player_one_score and player_two_score based on participant IDs,
+// and automatically infers the match result (player1_win, player2_win, draw) and status (finished).
 func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	matchID, err := strconv.ParseInt(idStr, 10, 64)
@@ -76,13 +78,80 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if input.Scores[0].PlayerID == input.Scores[1].PlayerID {
+		slog.Warn("match patch rejected: duplicate player ID in scores", "match_id", matchID, "player_id", input.Scores[0].PlayerID)
+		http.Error(w, "Scores must be for two distinct players", http.StatusBadRequest)
+		return
+	}
+
+	var match models.MatchRecord
+	err = h.DB.NewSelect().
+		Model(&match).
+		Where("id = ?", matchID).
+		Scan(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Fetching match")
+		return
+	}
+
+	if match.Status != models.StatusInProgress {
+		slog.Warn("match patch rejected: match is not in progress", "match_id", matchID, "status", match.Status)
+		http.Error(w, fmt.Sprintf("Match with ID %d is already %s", matchID, match.Status), http.StatusConflict)
+		return
+	}
+
+	// Map reported scores to player 1 and player 2 regardless of order
+	var p1Score, p2Score int
+	var found1, found2 bool
+
+	for _, s := range input.Scores {
+		switch s.PlayerID {
+		case match.Player1:
+			p1Score = s.Score
+			found1 = true
+		case match.Player2:
+			p2Score = s.Score
+			found2 = true
+		}
+	}
+
+	if !found1 || !found2 {
+		slog.Warn("match patch rejected: score player IDs do not match participants",
+			"match_id", matchID,
+			"expected_p1", match.Player1,
+			"expected_p2", match.Player2,
+			"received_id1", input.Scores[0].PlayerID,
+			"received_id2", input.Scores[1].PlayerID,
+		)
+		http.Error(w, "Reported scores do not match the registered match participants", http.StatusBadRequest)
+		return
+	}
+
+	// Infer status (default to finished if omitted)
+	status := models.StatusFinished
+	if input.Status != nil && *input.Status != "" {
+		status = *input.Status
+	}
+
+	// Infer result based on scores
+	var result models.MatchResult
+	if p1Score > p2Score {
+		result = models.ResultPlayer1Win
+	} else if p2Score > p1Score {
+		result = models.ResultPlayer2Win
+	} else {
+		result = models.ResultDraw
+	}
+
 	now := time.Now()
 	res, err := h.DB.NewUpdate().
 		Model((*models.MatchRecord)(nil)).
 		Where("id = ?", matchID).
 		Where("status = ?", models.StatusInProgress).
-		Set("status = ?", input.Status).
-		Set("result = ?", input.Result).
+		Set("player_one_score = ?", p1Score).
+		Set("player_two_score = ?", p2Score).
+		Set("status = ?", status).
+		Set("result = ?", result).
 		Set("finished_at = ?", now).
 		Exec(r.Context())
 
@@ -92,11 +161,19 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		slog.Warn("match patch failed: no match in progress found", "match_id", matchID)
+		slog.Warn("match patch failed: match status changed concurrently", "match_id", matchID)
 		http.Error(w, fmt.Sprintf("No match in progress with ID %d was found", matchID), http.StatusConflict)
 		return
 	}
 
-	slog.Info("match result updated in database", "match_id", matchID, "status", input.Status, "result", input.Result)
+	slog.Info("match result updated in database",
+		"match_id", matchID,
+		"player_one_id", match.Player1,
+		"player_one_score", p1Score,
+		"player_two_id", match.Player2,
+		"player_two_score", p2Score,
+		"status", status,
+		"result", result,
+	)
 	w.WriteHeader(http.StatusNoContent)
 }
