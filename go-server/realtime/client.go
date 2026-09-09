@@ -4,11 +4,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-const sendBufferSize = 256
+const (
+	// Maximum message queue size
+	sendBufferSize = 256
+
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer (512 KB).
+	maxMessageSize = 512 * 1024
+)
 
 type Client struct {
 	Hub      *Hub
@@ -28,27 +44,52 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID int64, username string) *C
 	}
 }
 
-// listens on the Send channel, pushes messages over websocket when channel gets data
+// listens on the Send channel, pushes messages over websocket when channel gets data,
+// and sends periodic pings to keep the connection alive.
 func (c *Client) writePump() {
+	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		ticker.Stop()
 		c.Conn.Close()
 	}()
 
-	for message := range c.Send {
-		err := c.Conn.WriteMessage(websocket.TextMessage, message)
-		if err != nil {
-			slog.Debug("WebSocket write pump closed", "username", c.Username, "user_id", c.UserID, "error", err)
-			return
+	for {
+		select {
+		case message, ok := <-c.Send:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// The hub closed the channel.
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				slog.Debug("WebSocket write pump closed", "username", c.Username, "user_id", c.UserID, "error", err)
+				return
+			}
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				slog.Debug("WebSocket ping failed, closing write pump", "username", c.Username, "user_id", c.UserID, "error", err)
+				return
+			}
 		}
 	}
 }
 
-// reads incoming data from the WebSocket until the user disconnects
+// reads incoming data from the WebSocket until the user disconnects.
+// enforces read deadlines and extends them upon receiving pong frames.
 func (c *Client) readPump() {
 	defer func() {
 		c.Hub.unregister <- c
 		c.Conn.Close()
 	}()
+
+	c.Conn.SetReadLimit(maxMessageSize)
+	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 
 	for {
 		messageType, p, err := c.Conn.ReadMessage()
