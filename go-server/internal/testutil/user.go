@@ -64,6 +64,17 @@ func RegisterUser(t *testing.T, u *models.User, testDB *bun.DB) {
 	}
 }
 
+// CreateRegisteredUser creates a test user with unique credentials,
+// inserts them into the database, and registers an automatic test cleanup.
+func CreateRegisteredUser(t *testing.T, testDB *bun.DB) *models.User {
+	t.Helper()
+	u, cleanup := MakeTestUser(t, testDB)
+	t.Cleanup(cleanup)
+	RegisterUser(t, u, testDB)
+	return u
+}
+
+
 func generateRandomString(length int) string {
 	bytes := make([]byte, length/2)
 	if _, err := rand.Read(bytes); err != nil {
