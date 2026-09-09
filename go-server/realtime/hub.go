@@ -433,4 +433,13 @@ func (h *Hub) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error 
 	return h.NotifyUser(targetUserID, data)
 }
 
+// NotifyMatchFinished delivers a real-time notification to a participant when a match concludes.
+func (h *Hub) NotifyMatchFinished(targetUserID int64, payload models.MatchFinishedPayload) error {
+	data, err := EncodeMessage(TypeMatchFinished, payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode match finished notification: %w", err)
+	}
+	return h.NotifyUser(targetUserID, data)
+}
+
 

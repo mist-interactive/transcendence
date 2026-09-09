@@ -26,6 +26,7 @@ const (
 	TypeInviteResponse MessageType = "match_invite_response"
 	TypeInviteCancel   MessageType = "match_invite_cancel"
 	TypeMatchStarted   MessageType = "match_started"
+	TypeMatchFinished  MessageType = "match_finished"
 
 	// Friend request notifications
 	TypeFriendRequestRecv     MessageType = "friend_request_recv"

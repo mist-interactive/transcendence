@@ -175,5 +175,33 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		"status", status,
 		"result", result,
 	)
+
+	if h.Notifier != nil {
+		var winnerID *int64
+		if result == models.ResultPlayer1Win {
+			winnerID = &match.Player1
+		} else if result == models.ResultPlayer2Win {
+			winnerID = &match.Player2
+		}
+
+		payload := models.MatchFinishedPayload{
+			MatchID:      matchID,
+			Player1:      match.Player1,
+			Player2:      match.Player2,
+			Player1Score: p1Score,
+			Player2Score: p2Score,
+			Status:       status,
+			Result:       result,
+			WinnerID:     winnerID,
+		}
+
+		if err := h.Notifier.NotifyMatchFinished(match.Player1, payload); err != nil {
+			slog.Debug("could not notify player 1 of match finish", "player_id", match.Player1, "error", err)
+		}
+		if err := h.Notifier.NotifyMatchFinished(match.Player2, payload); err != nil {
+			slog.Debug("could not notify player 2 of match finish", "player_id", match.Player2, "error", err)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }

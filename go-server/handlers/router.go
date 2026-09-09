@@ -47,6 +47,7 @@ type EventNotifier interface {
 	NotifyFriendRequest(targetUserID int64, item models.FriendshipItemResponse) error
 	NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error
 	NotifyFriendDeleted(targetUserID int64, friendshipID int64) error
+	NotifyMatchFinished(targetUserID int64, payload models.MatchFinishedPayload) error
 }
 
 type Handler struct {
