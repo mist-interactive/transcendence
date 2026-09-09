@@ -92,6 +92,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	protected.HandleFunc("GET /messages/{friend_name}", h.MessagesGetHistory)
 	protected.HandleFunc("PATCH /messages/{friend_name}/read", h.MessageSetRead)
 
+	protected.HandleFunc("GET /matches", h.MatchHistoryGet)
+
 	// Internal routes protected by APIGuard
 
 	internal := NewGroup(mux, "/api/internal", h.APIGuard)

@@ -177,3 +177,77 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 	)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// MatchHistoryGet handles GET /api/protected/matches.
+// It retrieves the match history for the authenticated user, mapping opponent info,
+// user-relative scores, and outcome (win, loss, draw, aborted).
+// Supports optional query parameters:
+//   - status: filter by match status (e.g., 'finished', 'in_progress', 'abandoned')
+//   - limit: maximum number of records to return (default 50, max 100)
+//   - offset: number of records to skip (default 0)
+func (h *Handler) MatchHistoryGet(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	matches := make([]models.MatchHistoryResponse, 0)
+
+	//build the query: get all matches with authenticated user as one party, and fill in opponent details
+	q := h.DB.NewSelect().
+		TableExpr("matches AS m").
+		ColumnExpr("m.id AS id").
+		ColumnExpr("u.id AS opponent_id").
+		ColumnExpr("u.username AS opponent").
+		ColumnExpr("u.avatar_url AS opponent_avatar_url").
+		ColumnExpr("CASE WHEN m.player_one = ? THEN m.player_one_score ELSE m.player_two_score END AS user_score", userID).
+		ColumnExpr("CASE WHEN m.player_one = ? THEN m.player_two_score ELSE m.player_one_score END AS opponent_score", userID).
+		ColumnExpr("m.status AS status").
+		ColumnExpr("m.result AS result").
+		ColumnExpr(`CASE
+			WHEN m.result IS NULL THEN NULL
+			WHEN m.result = 'draw' THEN 'draw'
+			WHEN m.result = 'aborted' THEN 'aborted'
+			WHEN (m.player_one = ? AND m.result = 'player1_win') OR (m.player_two = ? AND m.result = 'player2_win') THEN 'win'
+			ELSE 'loss'
+		END AS outcome`, userID, userID). //this CASE summarizes the outcome of the match
+		ColumnExpr("m.started_at AS started_at").
+		ColumnExpr("m.finished_at AS finished_at").
+		Join("JOIN users AS u ON (m.player_one = ? AND m.player_two = u.id) OR (m.player_two = ? AND m.player_one = u.id)", userID, userID).
+		Where("m.player_one = ? OR m.player_two = ?", userID, userID).
+		Order("m.started_at DESC")
+
+	//add status filter if one was provided
+	if status := r.URL.Query().Get("status"); status != "" {
+		q = q.Where("m.status = ?", status)
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			if parsed > 100 {
+				parsed = 100
+			}
+			limit = parsed
+		}
+	}
+	q = q.Limit(limit) //set a limit on results:default 50, or provided in parameter
+
+	if o := r.URL.Query().Get("offset"); o != "" { //set offset if provided
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			q = q.Offset(parsed)
+		}
+	}
+
+	err := q.Scan(r.Context(), &matches) //execute query
+	if err != nil {
+		HandleDBError(w, err, "Match history")
+		return
+	}
+
+	slog.Debug("match history retrieved", "user_id", userID, "count", len(matches))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(matches)
+}

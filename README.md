@@ -239,6 +239,34 @@ This updates the users information with the selected updates. response is status
 
 This deletes the users profile. response is status code only.
 
+##### `GET /api/protected/matches`
+
+Retrieves the match history for the authenticated user, ordered by `started_at DESC`. It maps opponent profile information, user-relative scores (`user_score` vs `opponent_score`), and the computed match outcome (`win`, `loss`, `draw`, `aborted`) relative to the authenticated user.
+
+Supports optional query parameters:
+- `status`: filter by match status (`finished`, `in_progress`, `abandoned`)
+- `limit`: maximum number of records to return (default 50, max 100)
+- `offset`: pagination offset (default 0)
+
+Example response:
+```json
+[
+  {
+    "id": 105,
+    "opponent_id": 2,
+    "opponent": "bob",
+    "opponent_avatar_url": null,
+    "user_score": 7,
+    "opponent_score": 3,
+    "status": "finished",
+    "result": "player1_win",
+    "outcome": "win",
+    "started_at": "2026-09-09T10:00:00Z",
+    "finished_at": "2026-09-09T10:15:00Z"
+  }
+]
+```
+
 ### Real-Time WebSocket Service (`/api/ws`)
 
 The WebSocket service manages live player presence and peer-to-peer match invitations. Clients connect to `GET /api/ws?token=<jwt>`, where the connection is authenticated via JWT validation.
