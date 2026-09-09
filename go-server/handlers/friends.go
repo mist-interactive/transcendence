@@ -48,6 +48,25 @@ func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("friend request sent", "from_user_id", userID, "to_username", input.Target, "friendship_id", f.ID)
+
+	if h.Notifier != nil {
+		sender, err := h.getUserByID(r.Context(), userID)
+		if err != nil {
+			slog.Error("failed to get sender profile for friend request notification", "error", err, "user_id", userID)
+		} else {
+			if err := h.Notifier.NotifyFriendRequest(targetUser.ID, models.FriendshipItemResponse{
+				FriendshipID: f.ID,
+				UserID:       sender.ID,
+				Username:     sender.Username,
+				AvatarURL:    sender.AvatarURL,
+				Status:       f.Status,
+				IsIncoming:   true,
+			}); err != nil {
+				slog.Debug("could not notify target user", "target_id", targetUser.ID, "error", err)
+			}
+		}
+	}
+
 	//send back the id of the created entry and status of the request
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -117,6 +136,26 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 		HandleDBError(w, err, "Answering friend request")
 		return
 	}
+
+	if h.Notifier != nil {
+		responder, err := h.getUserByID(r.Context(), userID)
+		if err != nil {
+			slog.Error("failed to get responder profile for friend request answer notification", "error", err, "user_id", userID)
+		} else {
+			if err := h.Notifier.NotifyFriendResponse(f.UserID, models.FriendshipItemResponse{
+				FriendshipID: f.ID,
+				UserID:       responder.ID,
+				Username:     responder.Username,
+				AvatarURL:    responder.AvatarURL,
+				Status:       f.Status,
+				IsIncoming:   false,
+			}); err != nil {
+				slog.Debug("could not notify requester", "requester_id", f.UserID, "error", err)
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +194,18 @@ func (h *Handler) getUserByUsername(ctx context.Context, target string) (*models
 	err := h.DB.NewSelect().
 		Model(user).
 		Where("username = ?", target).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (h *Handler) getUserByID(ctx context.Context, id int64) (*models.User, error) {
+	user := new(models.User)
+	err := h.DB.NewSelect().
+		Model(user).
+		Where("id = ?", id).
 		Scan(ctx)
 	if err != nil {
 		return nil, err
