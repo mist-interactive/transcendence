@@ -46,6 +46,7 @@ func (g *Group) HandleFunc(pattern string, handler http.HandlerFunc) {
 type EventNotifier interface {
 	NotifyFriendRequest(targetUserID int64, item models.FriendshipItemResponse) error
 	NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error
+	NotifyFriendDeleted(targetUserID int64, friendshipID int64) error
 }
 
 type Handler struct {

@@ -42,3 +42,8 @@ type FriendshipItemResponse struct {
 	IsIncoming   bool             `json:"is_incoming"`
 	UnreadCount  int64            `json:"unread_count"`
 }
+
+type FriendDeletePayload struct {
+	FriendshipID int64 `json:"friendship_id"`
+}
+

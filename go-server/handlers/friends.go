@@ -171,19 +171,26 @@ func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("friend deleted", "user_id", userID, "friendship_id", friendshipID)
-	res, err := h.DB.NewDelete().
-		Model((*models.Friendship)(nil)).
+	f := models.Friendship{}
+	err = h.DB.NewDelete().
+		Model(&f).
 		Where("id = ?", friendshipID).
 		Where("friend_id = ? OR user_id = ?", userID, userID). //you can delete a friendship from either side
-		Exec(r.Context())
+		Returning("*").
+		Scan(r.Context())
 	if err != nil {
-		HandleDBError(w, err, "Deleting friendship")
+		HandleDBError(w, err, "Friendship")
 		return
 	}
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
-		http.Error(w, "Friendship not found", http.StatusNotFound)
-		return
+
+	if h.Notifier != nil {
+		otherUserID := f.UserID
+		if otherUserID == userID {
+			otherUserID = f.FriendID
+		}
+		if err := h.Notifier.NotifyFriendDeleted(otherUserID, f.ID); err != nil {
+			slog.Debug("could not notify other user of friendship deletion", "target_id", otherUserID, "error", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
