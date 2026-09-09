@@ -4,6 +4,7 @@ import (
 	"context"
 	"dbBackend/db"
 	"dbBackend/handlers"
+	"dbBackend/realtime"
 	"fmt"
 	"log"
 	"log/slog"
@@ -62,9 +63,33 @@ func main() {
 	}
 	cancel()
 
+	rsaKey, err := handlers.GetPrivateKey()
+	if err != nil {
+		slog.Error("Failed to load JWT private key", "error", err)
+		os.Exit(1)
+	}
+	pubKey, err := handlers.GetPublicKey()
+	if err != nil {
+		slog.Error("Failed to load JWT public key", "error", err)
+		os.Exit(1)
+	}
+	apiKey, err := handlers.GetAPIKey()
+	if err != nil {
+		slog.Error("Failed to load API key", "error", err)
+		os.Exit(1)
+	}
+
+	// WS microservice
+	store := realtime.NewHttpDataStore("http://localhost:8080", apiKey)
+	hub := realtime.NewHub(store)
+	go hub.Run()
+
+	h := handlers.NewHandler(postgres, rsaKey, pubKey, apiKey, hub)
+
 	mux := http.NewServeMux()
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
-	handlers.RegisterRoutes(mux, postgres)
+	h.RegisterRoutes(mux)
+	mux.HandleFunc("GET /api/ws", hub.ServeWS(h.TokenValidator))
 
 	loggedHandler := handlers.RequestLogger(mux)
 

@@ -2,9 +2,8 @@ package handlers
 
 import (
 	"crypto/rsa"
-	"dbBackend/realtime"
+	"dbBackend/models"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -43,36 +42,31 @@ func (g *Group) HandleFunc(pattern string, handler http.HandlerFunc) {
 	g.mux.Handle(fullPattern, g.middleware(handler))
 }
 
+// EventNotifier defines an interface for delivering real-time events to users.
+type EventNotifier interface {
+	NotifyFriendRequest(targetUserID int64, item models.FriendshipItemResponse) error
+	NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error
+}
+
 type Handler struct {
 	DB         *bun.DB
 	PrivateKey *rsa.PrivateKey
 	PublicKey  *rsa.PublicKey
 	APIKey     string
+	Notifier   EventNotifier
 }
 
-func NewHandler(db *bun.DB, privKey *rsa.PrivateKey, pubKey *rsa.PublicKey, apiKey string) *Handler {
+func NewHandler(db *bun.DB, privKey *rsa.PrivateKey, pubKey *rsa.PublicKey, apiKey string, notifier EventNotifier) *Handler {
 	return &Handler{
 		DB:         db,
 		PrivateKey: privKey,
 		PublicKey:  pubKey,
 		APIKey:     apiKey,
+		Notifier:   notifier,
 	}
 }
 
-func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
-	rsaKey, err := GetPrivateKey()
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-	pubKey, err := GetPublicKey()
-	if err != nil {
-		log.Fatalf("Failed to load JWT public key: %v", err)
-	}
-	apiKey, err := getAPIKey()
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-	h := NewHandler(db, rsaKey, pubKey, apiKey)
+func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/login", h.CheckPassword)
 	mux.HandleFunc("POST /api/register", h.TryRegister)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -107,17 +101,9 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	// WS service internal endpoints
 	internal.HandleFunc("GET /friends/{id}", InjectPathIDContext(h.FriendsListGet))
 	internal.HandleFunc("POST /messages", h.MessageCreate)
-
-	//WS microservice
-	store := realtime.NewHttpDataStore("http://localhost:8080", apiKey)
-	hub := realtime.NewHub(store)
-	go hub.Run()
-
-	// Register the WebSocket endpoint (validates with the given function)
-	mux.HandleFunc("GET /api/ws", hub.ServeWS(h.tokenValidator))
 }
 
-func getAPIKey() (string, error) {
+func GetAPIKey() (string, error) {
 	keyPath := os.Getenv("GAMESERVER_API_KEY_PATH")
 	if keyPath == "" {
 		return "", fmt.Errorf("Critical: GAMESERVER_API_KEY_PATH is not set")
@@ -160,7 +146,7 @@ func GetPublicKey() (*rsa.PublicKey, error) {
 	return publicKey, nil
 }
 
-func (h *Handler) tokenValidator(tokenStr string) (int64, string, error) {
+func (h *Handler) TokenValidator(tokenStr string) (int64, string, error) {
 	claims, err := ValidateToken(tokenStr, h.PublicKey)
 	if err != nil {
 		return 0, "", err

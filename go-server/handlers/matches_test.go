@@ -30,7 +30,7 @@ func TestMatchPatch(t *testing.T) {
 			Exec(ctx)
 	})
 
-	handler := handlers.NewHandler(testDB, nil, nil, "")
+	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
 
 	tests := []struct {
 		name           string

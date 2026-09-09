@@ -12,7 +12,7 @@ import (
 )
 
 func TestTryRegister_Integration(t *testing.T) {
-	h := handlers.NewHandler(testDB, nil, nil, "")
+	h := handlers.NewHandler(testDB, nil, nil, "", nil)
 	tests := []struct {
 		name           string
 		setup          func(t *testing.T) models.RegisterRequest
