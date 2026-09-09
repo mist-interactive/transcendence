@@ -30,6 +30,7 @@ const (
 	// Friend request notifications
 	TypeFriendRequestRecv     MessageType = "friend_request_recv"
 	TypeFriendRequestResponse MessageType = "friend_request_response"
+	TypeFriendDeleted         MessageType = "friend_deleted"
 
 	// Generic error notification
 	TypeError MessageType = "error"
