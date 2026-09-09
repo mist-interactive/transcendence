@@ -2,6 +2,8 @@ package realtime
 
 import (
 	"context"
+	"dbBackend/models"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -30,7 +32,7 @@ func NewHub(store DataStore) *Hub {
 		clients:      make(map[int64]*Client),
 		register:     make(chan *Client),
 		unregister:   make(chan *Client),
-		unicast:      make(chan UserMessage),
+		unicast:      make(chan UserMessage, 256),
 		presenceSync: make(chan PresenceSync),
 		invites:      make(map[inviteKey]bool),
 		matchAction:  make(chan MatchAction),
@@ -375,3 +377,50 @@ func (h *Hub) SendToUser(userID int64, data []byte) {
 func (h *Hub) SendToUsername(username string, data []byte) {
 	h.unicast <- UserMessage{Username: username, Data: data}
 }
+
+// NotifyUser delivers an event payload to a connected user via the thread-safe unicast channel.
+// It accepts []byte, string, or any struct (which is marshaled to JSON).
+// It is safe for concurrent use by HTTP handler goroutines and does not block if the buffer is full.
+func (h *Hub) NotifyUser(userID int64, event any) error {
+	var data []byte
+	var err error
+
+	switch v := event.(type) {
+	case []byte:
+		data = v
+	case string:
+		data = []byte(v)
+	default:
+		data, err = json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("failed to marshal notification for user %d: %w", userID, err)
+		}
+	}
+
+	select {
+	case h.unicast <- UserMessage{UserID: userID, Data: data}:
+		return nil
+	default:
+		slog.Warn("hub unicast buffer full, notification dropped", "user_id", userID)
+		return fmt.Errorf("hub unicast buffer full")
+	}
+}
+
+// NotifyFriendRequest delivers a real-time notification to a target user when receiving a friend request.
+func (h *Hub) NotifyFriendRequest(targetUserID int64, item models.FriendshipItemResponse) error {
+	data, err := EncodeMessage(TypeFriendRequestRecv, item)
+	if err != nil {
+		return fmt.Errorf("failed to encode friend request notification: %w", err)
+	}
+	return h.NotifyUser(targetUserID, data)
+}
+
+// NotifyFriendResponse delivers a real-time notification to a target user when their friend request is answered.
+func (h *Hub) NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error {
+	data, err := EncodeMessage(TypeFriendRequestResponse, item)
+	if err != nil {
+		return fmt.Errorf("failed to encode friend request response notification: %w", err)
+	}
+	return h.NotifyUser(targetUserID, data)
+}
+

@@ -27,6 +27,10 @@ const (
 	TypeInviteCancel   MessageType = "match_invite_cancel"
 	TypeMatchStarted   MessageType = "match_started"
 
+	// Friend request notifications
+	TypeFriendRequestRecv     MessageType = "friend_request_recv"
+	TypeFriendRequestResponse MessageType = "friend_request_response"
+
 	// Generic error notification
 	TypeError MessageType = "error"
 )
