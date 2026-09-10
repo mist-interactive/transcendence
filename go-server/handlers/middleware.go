@@ -19,6 +19,8 @@ import (
 
 type contextKey string
 
+const LevelTrace slog.Level = -8
+
 const userContextKey contextKey = "user"
 const userIDKey contextKey = "user_id"
 const requestInfoKey contextKey = "request_info"
@@ -82,7 +84,7 @@ func RequestLogger(next http.Handler) http.Handler {
 		}
 
 		if r.URL.Path == "/api/health" {
-			slog.Debug("http healthcheck", attrs...)
+			slog.Log(r.Context(), LevelTrace, "http healthcheck", attrs...)
 		} else if rec.statusCode >= 500 {
 			slog.Error("http request error", attrs...)
 		} else if rec.statusCode >= 400 {

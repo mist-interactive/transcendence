@@ -24,6 +24,8 @@ func main() {
 	}
 	if envLevel := os.Getenv("LOG_LEVEL"); envLevel != "" {
 		switch strings.ToLower(envLevel) {
+		case "trace", "health", "healthcheck":
+			logLevel = handlers.LevelTrace
 		case "debug":
 			logLevel = slog.LevelDebug
 		case "info":
