@@ -1,0 +1,6 @@
+$kind: websocket-request
+description: ""
+url: "{{base_ws}}{{vault:token_mhirvasm}}"
+settings: {}
+messages: .resources/mhirvasm.resources/messages
+order: 955102859464495

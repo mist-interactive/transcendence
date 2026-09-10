@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends/{{friendshipID}}"
+method: PATCH
+headers:
+  Authorization: Bearer {{tokenB}}
+body:
+  type: text
+  content: |-
+    {
+        "status": "accepted"
+    }
+order: 8000

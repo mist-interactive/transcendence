@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends/1"
+method: DELETE
+headers:
+  Authorization: Bearer {{vault:token_anpollan}}
+body:
+  type: text
+  content: ""
+order: 16000

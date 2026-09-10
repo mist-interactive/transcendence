@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{base_url}}/api/register"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+    "username": "{{randomUser}}",
+    "email": "{{randomUser}}@postman.testing",
+    "password": "testing123"
+    }
+scripts:
+  - type: beforeRequest
+    code: pm.variables.set("randomUser", "user_" + Math.random().toString(36).substring(7));
+    language: text/javascript
+order: 1000

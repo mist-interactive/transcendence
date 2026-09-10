@@ -1,0 +1,6 @@
+name: Local
+values:
+  - key: base_url
+    value: 'https://localhost:8443'
+  - key: base_ws
+    value: 'wss://localhost:8443/api/ws?token='

@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{base_url}}/api/login"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+        "username": "nraatika",
+        "password": "testing123"
+    }
+order: 1000

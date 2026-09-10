@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends"
+method: GET
+headers:
+  Authorization: Bearer {{vault:token_mhirvasm}}
+body:
+  type: text
+  content: ""
+order: 11000

@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{base_url}}/api/internal/matches/{{match_id}}"
+method: PATCH
+headers:
+  x-api-key: "{{APIKey}}"
+body:
+  type: text
+  content: |-
+    {
+       "scores": [
+            { "player_id": 2, "score": 7 },
+            { "player_id": 1, "score": 4 }
+          ],
+          "status": "finished"
+    }
+order: 5000

@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{base_url}}/api/internal/matches"
+method: POST
+headers:
+  x-api-key: "{{APIKey}}"
+body:
+  type: json
+  content: |-
+    {
+        "player_one": "nraatika",
+        "player_two": "zfarah"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const response = pm.response.json();
+
+      pm.test("Match created successfully", function () {
+          pm.response.to.have.status(201);
+          pm.expect(response.id).to.exist;
+      });
+
+      pm.collectionVariables.set("match_id", response.id);
+    language: text/javascript
+order: 4000

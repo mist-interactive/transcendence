@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends"
+method: GET
+headers:
+  Authorization: Bearer {{vault:token_anpollan}}
+body:
+  type: text
+  content: ""
+settings: {}
+order: 15000

@@ -1,0 +1,17 @@
+# Use this workspace to collaborate
+workspace:
+  id: d80faa3a-ab22-4a67-b231-d951f12f4200
+
+localResources:
+  specs:
+    - ../go-server/docs/swagger.json
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
+cloudResources:
+  collections:
+    ../postman/collections/transcendence baseline queries: 56387902-f2201975-8189-4b86-bb4f-d762dc9a7232
+    ../postman/collections/Delete User Sequence: 56387902-f1eca3a3-38a5-4f09-8161-fb1efcf04e24
+    ../postman/collections/friends testing: 56387902-1f981a72-c743-4576-8de2-ca8619e59bc0
+    ../postman/collections/LoadTest: 56387902-20440970-c67c-4cd8-ab9f-efa3ee25e30d
+    ../postman/collections/message: 56387902-237299d1-75f8-4805-bf74-f25a1073d9ba

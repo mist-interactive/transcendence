@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{base_url}}/api/register"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "username": "{{testUsername}}",
+      "email": "{{testEmail}}",
+      "password": "{{testPassword}}"
+    }
+scripts:
+  - type: beforeRequest
+    code: |-
+      const uniqueId = Date.now();
+      pm.environment.set("testUsername", `user_${uniqueId}`);
+      pm.environment.set("testEmail", `user_${uniqueId}@test.postman`);
+      pm.environment.set("testPassword", "Pass1234!");
+    language: text/javascript
+order: 1000

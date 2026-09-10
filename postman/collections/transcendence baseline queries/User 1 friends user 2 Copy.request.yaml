@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends"
+method: POST
+headers:
+  Authorization: Bearer {{vault:token_nraatika}}
+body:
+  type: text
+  content: |-
+    {
+        "target": "mhirvasm"
+    }
+order: 13000

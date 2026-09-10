@@ -1,0 +1,10 @@
+$kind: websocket-message
+content: |-
+  {
+      "type": "match_invite_send",
+      "payload": {
+        "username": "mhirvasm"
+      }
+  }
+contentType: text
+order: 3726971458313011

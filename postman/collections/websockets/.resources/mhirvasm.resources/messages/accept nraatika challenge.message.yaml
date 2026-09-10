@@ -1,0 +1,11 @@
+$kind: websocket-message
+content: |-
+  {
+      "type":"match_invite_response",
+      "payload":{
+          "username":"nraatika",
+          "status":"accepted"
+      }
+  }
+contentType: text
+order: 1805864536832750

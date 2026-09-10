@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/profile"
+method: PATCH
+headers:
+  Authorization: Bearer {{authToken}}
+body:
+  type: text
+  content: |-
+    {
+        "bio": "Now with some data"
+    }
+order: 8000

@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends"
+method: POST
+headers:
+  Authorization: Bearer {{tokenA}}
+body:
+  type: text
+  content: |-
+    {
+        "target": "mhirvasm"
+    }
+order: 5000

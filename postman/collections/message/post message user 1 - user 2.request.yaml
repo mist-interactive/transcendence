@@ -1,0 +1,15 @@
+$kind: http-request
+name: post message user 1 -> user 2
+url: "{{base_url}}/api/internal/messages"
+method: POST
+headers:
+  x-api-key: "{{APIKey}}"
+body:
+  type: text
+  content: |-
+    {
+       "sender_id": 1,
+       "recipient_id": 2,
+       "content": "terve, terve"
+    }
+order: 5000

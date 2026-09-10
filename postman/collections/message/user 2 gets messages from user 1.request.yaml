@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/messages/nraatika"
+method: GET
+headers:
+  Authorization: Bearer {{tokenB}}
+body:
+  type: text
+  content: |-
+    {
+       "sender_id": 1,
+       "recipient_id": 2,
+       "content": "terve, terve"
+    }
+settings: {}
+order: 6000

@@ -1,0 +1,6 @@
+$kind: websocket-request
+description: ""
+url: "{{base_ws}}{{vault:token_nraatika}}"
+settings: {}
+messages: .resources/nraatika.resources/messages
+order: 1789038407762

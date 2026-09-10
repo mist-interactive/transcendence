@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/register"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+    "username": "nraatika2",
+    "email": "nraatika2@student.hive.fi",
+    "password": "testing123"
+    }
+order: 1000

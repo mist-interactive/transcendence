@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{base_url}}/api/internal/matches"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "player_one": {{testUserId}},
+      "player_two": 1 
+    }
+order: 4000

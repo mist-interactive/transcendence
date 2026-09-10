@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/messages/mhirvasm"
+method: GET
+headers:
+  Authorization: Bearer {{vault:token_nraatika}}
+body:
+  type: text
+  content: ""
+order: 10000

@@ -1,0 +1,11 @@
+$kind: websocket-message
+content: |-
+  {
+       "type": "direct_message_send",
+        "payload": {
+          "username": "nraatika",
+          "content": "Tere tere kolmas"
+      }
+  }
+contentType: text
+order: 1789039819328

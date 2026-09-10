@@ -1,0 +1,37 @@
+$kind: http-request
+url: "{{base_url}}/api/renew"
+method: POST
+body:
+  type: text
+  content: ""
+scripts:
+  - type: afterResponse
+    code: |-
+      const resp = pm.response.json();
+      const token = resp.token;
+
+      if (token) {
+          const payloadBase64 = token.split('.')[1];
+          const decodedPayload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+          console.log("Decoded JWT Payload:", decodedPayload);
+
+          pm.test("Token payload has an expiry (exp) claim", function () {
+              pm.expect(decodedPayload).to.have.property("exp");
+          });
+
+          pm.test("Token is not expired", function () {
+              pm.expect(decodedPayload.exp * 1000).to.be.above(Date.now());
+          });
+
+          if (decodedPayload.exp) {
+              const expDate = new Date(decodedPayload.exp * 1000);
+              console.log("Token Expires At:", expDate.toLocaleString());
+          }
+          pm.environment.set("testUserToken", token);
+          const userId = decodedPayload.user_id;
+          pm.environment.set("testUserId", userId);
+      } else {
+          console.warn("No token found in response body!");
+      }
+    language: text/javascript
+order: 3000

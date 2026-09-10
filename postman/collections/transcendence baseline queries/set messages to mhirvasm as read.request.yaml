@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/messages/mhirvasm/read"
+method: PATCH
+headers:
+  Authorization: Bearer {{vault:token_anpollan}}
+body:
+  type: text
+  content: |-
+    {
+        "read_up_to": 2
+    }
+order: 12000

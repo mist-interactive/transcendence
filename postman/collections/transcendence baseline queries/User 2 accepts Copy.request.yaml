@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends/22"
+method: PATCH
+headers:
+  Authorization: Bearer {{vault:token_mhirvasm}}
+body:
+  type: text
+  content: |-
+    {
+        "status": "accepted"
+    }
+order: 14000

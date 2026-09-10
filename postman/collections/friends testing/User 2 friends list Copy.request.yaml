@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/friends"
+method: GET
+headers:
+  Authorization: Bearer {{tokenB}}
+body:
+  type: text
+  content: ""
+scripts:
+  - type: afterResponse
+    code: |-
+      const response = pm.response.json();
+
+      if (response.length > 0 && response[0].is_incoming) {
+              pm.environment.set("friendshipID", response[0].friendship_id);
+          }
+    language: text/javascript
+settings: {}
+order: 9000

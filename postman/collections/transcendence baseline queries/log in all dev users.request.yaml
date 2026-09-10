@@ -1,0 +1,51 @@
+$kind: http-request
+url: "{{base_url}}/api/renew"
+method: POST
+body:
+  type: text
+  content: ""
+scripts:
+  - type: beforeRequest
+    code: |-
+      const users = ["nraatika", "mhirvasm", "jpelline", "anpollan", "zfarah"];
+      const password = "password123";
+      const baseUrl = pm.environment.get("base_url");
+
+      users.forEach(username => {
+          // 1. Call /api/login for each user
+          pm.sendRequest({
+              url: `${baseUrl}/api/login`,
+              method: "POST",
+              header: { "Content-Type": "application/json" },
+              body: { mode: "raw", raw: JSON.stringify({ username, password }) }
+          }, (err, res) => {
+              if (err || res.code !== 200) {
+                  console.error(`Login failed for ${username}`, err);
+                  return;
+              }
+              const cookieHeader = res.headers.get("Set-Cookie");
+              // 2. Call /api/renew to get the JWT using the session cookie
+              pm.sendRequest({
+                  url: `${baseUrl}/api/renew`,
+                  method: "POST",
+                  header: { "Cookie": cookieHeader }
+              }, (err, renewRes) => {
+                  if (err || renewRes.code !== 200) {
+                      console.error(`Renew failed for ${username}`, err);
+                      return;
+                  }
+
+                  const token = renewRes.json().token;
+                  // 3. Save directly to environment variables
+                  pm.vault.set(`token_${username}`, token)
+                      .then(() => {
+                          console.log(`Saved vault secret for ${username}`);
+                      })
+                      .catch(err => {
+                          console.error(`Failed to write vault secret for ${username}`, err);
+                      });
+              });
+          });
+      });
+    language: text/javascript
+order: 9000
