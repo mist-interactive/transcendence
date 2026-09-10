@@ -3,3 +3,5 @@
 *.sh
 !go-server/scripts/run_tests.sh
 go-server/tmp/
+uploads/
+go-server/uploads/

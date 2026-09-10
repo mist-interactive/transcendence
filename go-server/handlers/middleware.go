@@ -170,6 +170,11 @@ func UserIDFromContext(ctx context.Context) (int64, bool) {
 	return id, ok
 }
 
+// ContextWithUserID returns a copy of parent context with the user ID set
+func ContextWithUserID(parent context.Context, id int64) context.Context {
+	return context.WithValue(parent, userIDKey, id)
+}
+
 func (h *Handler) APIGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := ExtractAPIKey(r)

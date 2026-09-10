@@ -54,6 +54,14 @@ type Handler struct {
 	PublicKey  *rsa.PublicKey
 	APIKey     string
 	Notifier   EventNotifier
+	UploadsDir string
+}
+
+func (h *Handler) GetUploadsDir() string {
+	if h.UploadsDir != "" {
+		return h.UploadsDir
+	}
+	return "./uploads"
 }
 
 func NewHandler(db *bun.DB, privKey *rsa.PrivateKey, pubKey *rsa.PublicKey, apiKey string, notifier EventNotifier) *Handler {
@@ -76,12 +84,16 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	//requires session token
 	mux.Handle("POST /api/renew", h.SessionGuard(http.HandlerFunc(h.IssueToken)))
 
+	mux.HandleFunc("GET /api/uploads/{filename}", h.ServeUpload)
+
 	// all /api/protected/* routes require a valid JWT
 	protected := NewGroup(mux, "/api/protected", h.JWTGuard)
 	protected.HandleFunc("GET /profile", h.ProfileGet)
 	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
 	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
 	protected.HandleFunc("DELETE /profile", h.ProfileDelete)
+
+	protected.HandleFunc("POST /avatar", h.AvatarUpload)
 
 	protected.HandleFunc("POST /friends", h.FriendRequestPost)
 	protected.HandleFunc("GET /friends", h.FriendsListGet)

@@ -32,7 +32,7 @@ type LoginRequest struct {
 
 type ProfilePatchInput struct {
 	Bio       *string `json:"bio" validate:"omitempty,max=500"`
-	AvatarURL *string `json:"avatarUrl" validate:"omitempty,url,max=2048"`
+	AvatarURL *string `json:"avatarUrl" validate:"omitempty,max=2048"`
 	Email     *string `json:"email" validate:"omitempty,email,max=255"`
 }
 
