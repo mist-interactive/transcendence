@@ -177,3 +177,44 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 	)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// UserActiveMatchGet handles GET /api/internal/users/{id}/active-match.
+// In a single query with a JOIN, it retrieves the in-progress match and the opponent's profile.
+// Returns 200 with ActiveMatchResponse if found, or 404 if no match is currently in progress.
+func (h *Handler) UserActiveMatchGet(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
+		slog.Warn("user active match rejected: missing user id in context")
+		http.Error(w, "Missing user ID in request context", http.StatusBadRequest)
+		return
+	}
+
+	var resp models.ActiveMatchResponse
+	err := h.DB.NewSelect().
+		TableExpr("matches AS m").
+		ColumnExpr("m.id AS match_id").
+		ColumnExpr("u.id AS opponent_id").
+		ColumnExpr("u.username AS opponent").
+		ColumnExpr("m.started_at AS started_at").
+		Join("JOIN users AS u ON (m.player_one = ? AND m.player_two = u.id) OR (m.player_two = ? AND m.player_one = u.id)", userID, userID).
+		Where("m.status = ?", models.StatusInProgress).
+		Where("m.player_one = ? OR m.player_two = ?", userID, userID).
+		Order("m.started_at DESC").
+		Limit(1).
+		Scan(r.Context(), &resp)
+
+	if err != nil {
+		HandleDBError(w, err, "Active match")
+		return
+	}
+
+	slog.Info("active match retrieved for user",
+		"user_id", userID,
+		"match_id", resp.MatchID,
+		"opponent", resp.OpponentUsername,
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}

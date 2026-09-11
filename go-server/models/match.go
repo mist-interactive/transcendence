@@ -48,3 +48,10 @@ type MatchPatchInput struct {
 	Scores []PlayerScoreInput `json:"scores" validate:"required,len=2"`
 	Status *MatchStatus       `json:"status,omitempty" validate:"omitempty,oneof=finished abandoned"`
 }
+
+type ActiveMatchResponse struct {
+	MatchID          int64     `json:"match_id" bun:"match_id"`
+	OpponentID       int64     `json:"opponent_id" bun:"opponent_id"`
+	OpponentUsername string    `json:"opponent" bun:"opponent"`
+	StartedAt        time.Time `json:"started_at" bun:"started_at"`
+}

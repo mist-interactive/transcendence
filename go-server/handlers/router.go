@@ -98,6 +98,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	internal.HandleFunc("POST /matches", h.MatchCreate)
 	internal.HandleFunc("PATCH /matches/{id}", h.MatchPatch)
+	internal.HandleFunc("GET /users/{id}/active-match", InjectPathIDContext(h.UserActiveMatchGet))
 
 	// WS service internal endpoints
 	internal.HandleFunc("GET /friends/{id}", InjectPathIDContext(h.FriendsListGet))
